@@ -1,0 +1,269 @@
+{
+  "countries": {
+    "colombia": {
+      "label": "colombia",
+      "items": [
+        {
+          "jaulas": "idem Tati"
+        },
+        {
+          "pre_entrega_de_la_jaula": "idem retiro normal"
+        },
+        {
+          "rnatt": "idem Tati + USD 50"
+        },
+        {
+          "vet_fees": "idem Tati + USD 25"
+        },
+        {
+          "certificado_internacional_de_viaje": "USD190 x 1 mascota USD 290 por 2 mascotas y USD 390 por 3 mascotas"
+        },
+        {
+          "retiro": "USD 200 ( 1 mascota en jaula grande o 2 chiquitas)"
+        },
+        {
+          "tender": "USD 120 siempre"
+        },
+        {
+          "flete": "+ USD 650 retail y USA + USD 750 si es agente."
+        },
+        {
+          "latam_fees": "USD 350 siempre"
+        },
+        {
+          "fwd": "FWD a MDE, CLO, BAQ, PEI, AXM etc USD780 X 1 mascota, USD 880 X 2 mascotas y USD 980 x 3 mascotas  (INCLUYE HOME DELIVERY)"
+        },
+        {
+          "hospedaje": "USD 50 por perro x día y USD 40 por gato x día.  Si es solo una dia perro 80 gato 60"
+        }
+      ]
+    },
+    "ecuador": {
+      "label": "ecuador",
+      "items": [
+        {
+          "jaulas": "idem Tati"
+        },
+        {
+          "pre_entrega_de_la_jaula": "idem retiro normal"
+        },
+        {
+          "rnatt": "idem Tati +USD 50"
+        },
+        {
+          "vet_fees": "idem Tati +USD 25"
+        },
+        {
+          "certificado_internacional_de_viaje": "USD220 x 1 mascota USD 280 por 2 mascotas y USD 340 por 3 mascotas"
+        },
+        {
+          "retiro": "USD 200 ( 1 mascota en jaula grande o 2 chiquitas)"
+        },
+        {
+          "tender": "USD 120 siempre"
+        },
+        {
+          "flete": "+ USD 650 retail y USA + USD 750 si es agente."
+        },
+        {
+          "latam_fees": "USD 350 siempre"
+        },
+        {
+          "fwd": "FWD a GYE, CUE  etc USD780 X 1 mascota, USD 880 X 2 mascotas y USD 980 x 3 mascotas"
+        },
+        {
+          "hospedaje": "USD 50 por perro x día y USD 40 por gato x día."
+        }
+      ]
+    },
+    "brasil": {
+      "label": "brasil",
+      "items": [
+        {
+          "jaulas": "idem Aline"
+        },
+        {
+          "pre_entrega_de_la_jaula": "idem retiro normal"
+        },
+        {
+          "rnatt": "idem Aline +USD 100"
+        },
+        {
+          "vet_fees": "USD250 x 1 mascota, USD 350 x 2 mascotas y USD 450 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje": "→→ A EU/Sudamérica USD450 x 1 mascota USD 530 por 2 mascotas y USD 610 por 3 mascotas."
+        },
+        {
+          "certificado_viaje_uk_usa": "→→A UK/USA USD600 x 1 mascota USD 680 por 2 mascotas y USD 760 por 3 mascotas."
+        },
+        {
+          "retiro": "USD 200 ( 1 mascota en jaula grande o 2 chiquitas/medianas) en Sao Paulo y USD 210 en Rio de Janeiro"
+        },
+        {
+          "tender": "USD 120 siempre"
+        },
+        {
+          "export_customs_clearance": "USD 480 hasta 2 mascotas, USD 580 x 3 mascotas."
+        },
+        {
+          "flete": "+ USD 900 retail  + USD 1000 si es agente."
+        },
+        {
+          "latam_fees": "USD 350 siempre"
+        },
+        {
+          "fwd": "FWD a cualquier ciudad del interior de Brasil 20% sobre el valor que cotiza Aline"
+        },
+        {
+          "hospedaje": "USD 50 por mascota por día. Si viaja a USA y viene de un traslado doméstico son mínimo 7 días de hospedaje. Si viaja a EU son 5 días."
+        }
+      ]
+    },
+    "mexico": {
+      "label": "mexico",
+      "items": [
+        {
+          "jaulas": "idem Adriana + USD 10"
+        },
+        {
+          "pre_entrega_de_la_jaula": "adri x 1,6"
+        },
+        {
+          "rnatt": "idem Adriana +USD 100"
+        },
+        {
+          "vet_fees": "USD200 x 1 mascota, USD 260 x 2 mascotas y USD 340 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje_destino_america": "DESTINO AMERICA  USD180 x 1 mascota USD 260 por 2 mascotas y USD 340 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje_destino_no_america": "DESTINO NO AMERICA  USD320 x 1 mascota USD 380 por 2 mascotas y USD 460 por 3 mascotas"
+        },
+        {
+          "certificados_transito_eu": "USD 120 por pet"
+        },
+        {
+          "pick_up": "USD 250 x 1,6 si entran en una sala camioneta"
+        },
+        {
+          "reception_from_domestic_flight_and_transport_to_our_boarding": "adri x 1,6"
+        },
+        {
+          "tender": "USD 120 siempre"
+        },
+        {
+          "export_customs_clearance": "USD 255 siempre , no importa la cantidad de mascotas es por AWB ."
+        },
+        {
+          "flete": "+ USD 1000 sobre Adriana"
+        },
+        {
+          "latam_fees": "USD 350 siempre"
+        },
+        {
+          "fwd": "FWD a cualquier cuidad de Mexico hay que consaultar por Adriana y el costo es Adriana x 1,6"
+        },
+        {
+          "hospedaje": "USD 80 por mascota por día si es una noche , si es mas de una noce USD 60 por noche ."
+        }
+      ]
+    },
+    "chile": {
+      "label": "chile",
+      "notes": [
+        "con Interfamily,",
+        "CON EQUIPO JAVIER 1000 + 250 DE FLETE"
+      ],
+      "items": [
+        {
+          "jaulas": "Interfamily  + USD 10"
+        },
+        {
+          "pre_entrega_de_la_jaula": "idem retiro normal"
+        },
+        {
+          "rnatt": "Interfamily +USD 150"
+        },
+        {
+          "vet_fees": "USD200 x 1 mascota, USD 260 x 2 mascotas y USD 340 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje_destino_america": "DESTINO AMERICA  USD320 x 1 mascota USD 450 por 2 mascotas y USD 450 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje_destino_no_america": "DESTINO NO AMERICA  USD350 x 1 mascota USD 410 por 2 mascotas y USD 470 por 3 mascotas"
+        },
+        {
+          "certificados_transito_eu": "USD 120 por pet"
+        },
+        {
+          "retiro": "USD 200 si entran en una sala camioneta"
+        },
+        {
+          "tender": "USD 120 siempre"
+        },
+        {
+          "flete": "+ USD 1000 sobre Interfamily"
+        },
+        {
+          "latam_fees": "USD 350 siempre"
+        },
+        {
+          "fwd": "FWD a cualquier cuidad de Chile hay que consaultar por Interfamily y el costo a cotizar es  x 1,6"
+        },
+        {
+          "hospedaje": "USD 70 por mascota por día si es una noche , si es mas de una noche USD 50 por noche ."
+        }
+      ]
+    },
+    "costa_rica": {
+      "label": "costa_rica",
+      "items": [
+        {
+          "jaulas": "Javier + USD 10"
+        },
+        {
+          "pre_entrega_de_la_jaula": "idem retiro normal"
+        },
+        {
+          "rnatt": "Javier +USD 140"
+        },
+        {
+          "vet_fees": "USD150 x 1 mascota, USD 210 x 2 mascotas y USD 270 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje_destino_america": "DESTINO AMERICA  USD280 x 1 mascota USD 360 por 2 mascotas y USD 440 por 3 mascotas"
+        },
+        {
+          "certificado_internacional_de_viaje_destino_no_america": "DESTINO NO AMERICA  USD280 x 1 mascota USD 360 por 2 mascotas y USD 440 por 3 mascotas"
+        },
+        {
+          "certificados_transito_eu": "USD 120 por pet"
+        },
+        {
+          "retiro": "USD 200 si entran en una sala camioneta"
+        },
+        {
+          "tender": "USD 120 siempre"
+        },
+        {
+          "export_customs_clearance": "USD 205 siempre , no importa la cantidad de mascotas es por AWB ."
+        },
+        {
+          "flete": "+ USD 1000 sobre Javier"
+        },
+        {
+          "latam_fees": "USD 350 siempre"
+        },
+        {
+          "fwd": "FWD a cualquier cuidad de C Ricahay que consaultar por Javier y el costo  a cotizar es  x 1,6"
+        },
+        {
+          "hospedaje": "USD 40 por mascota por día si es una noche , si es mas de una noce USD 30 por noche ."
+        }
+      ]
+    }
+  }
+}
