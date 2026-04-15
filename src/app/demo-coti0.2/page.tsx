@@ -371,11 +371,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [impoTemplatesError, setImpoTemplatesError] = useState<string | null>(
     null,
   );
-  const [impoPetMeta, setImpoPetMeta] = useState<{
-    requested: number;
-    wanted: number;
-    cap: number;
-  } | null>(null);
   const [latamCustomFormOpen, setLatamCustomFormOpen] = useState(false);
   const [latamCustomTitle, setLatamCustomTitle] = useState("");
   const [latamCustomDesc, setLatamCustomDesc] = useState("");
@@ -394,7 +389,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
     if (d.length < 2) {
       setImpoTemplates([]);
       setImpoTemplatesError(null);
-      setImpoPetMeta(null);
       return;
     }
     const ac = new AbortController();
@@ -420,7 +414,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
           if (!ac.signal.aborted) {
             setImpoTemplatesError(err);
             setImpoTemplates([]);
-            setImpoPetMeta(null);
           }
           return;
         }
@@ -433,33 +426,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
             : [];
         if (!ac.signal.aborted) {
           setImpoTemplates(list);
-          const b = body as {
-            wanted_pet_count?: unknown;
-            pet_cap?: unknown;
-            requested_pets?: unknown;
-          };
-          const wanted = Number(b.wanted_pet_count);
-          const cap = Number(b.pet_cap);
-          const requested = Number(b.requested_pets);
-          if (
-            Number.isFinite(wanted) &&
-            Number.isFinite(cap) &&
-            Number.isFinite(requested)
-          ) {
-            setImpoPetMeta({
-              wanted,
-              cap,
-              requested,
-            });
-          } else {
-            setImpoPetMeta(null);
-          }
         }
       } catch (e: unknown) {
         if (ac.signal.aborted) return;
         setImpoTemplatesError(e instanceof Error ? e.message : String(e));
         setImpoTemplates([]);
-        setImpoPetMeta(null);
       } finally {
         if (!ac.signal.aborted) setImpoTemplatesLoading(false);
       }

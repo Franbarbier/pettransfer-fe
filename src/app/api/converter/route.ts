@@ -109,7 +109,7 @@ export async function POST(req: Request): Promise<Response> {
       const out = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
       const base = file.name.replace(/\.xls$/i, "");
       const filename = `${sanitizeFilename(base)}.xlsx`;
-      return new NextResponse(out, {
+      return new NextResponse(new Uint8Array(out), {
         status: 200,
         headers: {
           "Content-Type":
@@ -128,7 +128,7 @@ export async function POST(req: Request): Promise<Response> {
       zip.file(`${sanitizeFilename(base)}.xlsx`, out);
     }
     const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
-    return new NextResponse(zipBuf, {
+    return new NextResponse(new Uint8Array(zipBuf), {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
