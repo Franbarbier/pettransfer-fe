@@ -8,7 +8,51 @@ type CountryBundle = {
 
 type Root = { countries: Record<string, CountryBundle> };
 
-const root = raw as Root;
+function isStringRecordArray(value: unknown): value is Record<string, string>[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    return Object.values(entry).every((v) => typeof v === "string");
+  });
+}
+
+function parseRoot(value: unknown): Root {
+  if (typeof value !== "object" || value === null) {
+    return { countries: {} };
+  }
+
+  const countriesValue = (value as { countries?: unknown }).countries;
+  if (typeof countriesValue !== "object" || countriesValue === null) {
+    return { countries: {} };
+  }
+
+  const countries: Record<string, CountryBundle> = {};
+
+  for (const [countryKey, bundle] of Object.entries(countriesValue)) {
+    if (typeof bundle !== "object" || bundle === null) continue;
+
+    const label =
+      typeof (bundle as { label?: unknown }).label === "string"
+        ? (bundle as { label: string }).label
+        : countryKey;
+
+    const items = isStringRecordArray((bundle as { items?: unknown }).items)
+      ? (bundle as { items: Record<string, string>[] }).items
+      : [];
+
+    const notesRaw = (bundle as { notes?: unknown }).notes;
+    const notes =
+      Array.isArray(notesRaw) && notesRaw.every((note) => typeof note === "string")
+        ? notesRaw
+        : undefined;
+
+    countries[countryKey] = { label, items, notes };
+  }
+
+  return { countries };
+}
+
+const root = parseRoot(raw as unknown);
 
 function normalizeLoose(s: string): string {
   return s
