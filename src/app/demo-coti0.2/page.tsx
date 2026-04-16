@@ -1568,18 +1568,27 @@ export default function DemoCoti01Page(): React.JSX.Element {
               aria-hidden
             />
 
-            {!origin.trim() ? (
-              <p className="text-xs text-zinc-500">
-                Elegí un origen para cargar los ítems de referencia según país
-                (mismo criterio que{" "}
-                <code className="rounded bg-zinc-200 px-1">
-                  latam_profit_transport_by_country.json
-                </code>
-                ).
-              </p>
-            ) : (latamProfitFields && latamProfitFields.fields.length > 0) ||
-              latamRows.length > 0 ? (
-              <div className="space-y-6">
+            <div className="space-y-6">
+              {!origin.trim() ? (
+                <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs leading-relaxed text-amber-950">
+                  <span className="font-medium">Sin origen</span> no aparecen
+                  los campos del JSON por país. Podés sumar{" "}
+                  <span className="font-medium">líneas personalizadas</span> en
+                  “Agregar al presupuesto”. Si elegís origen, se ofrecen ítems
+                  desde{" "}
+                  <code className="rounded bg-amber-100 px-0.5 text-[11px]">
+                    latam_profit_transport_by_country.json
+                  </code>
+                  .
+                </p>
+              ) : null}
+              {origin.trim() && !latamProfitFields ? (
+                <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-relaxed text-zinc-600">
+                  Este origen no coincide con un país en el JSON de referencia;
+                  igual podés sumar líneas personalizadas o plantillas IMPO más
+                  abajo.
+                </p>
+              ) : null}
                 <section
                   className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm"
                   aria-labelledby="dc02-budget-lines-heading"
@@ -1621,7 +1630,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         <span className="font-medium text-zinc-700">
                           Agregar al presupuesto
                         </span>{" "}
-                        abajo, o cargá un template IMPO / cotización similar.
+                        abajo (personalizado sin origen, o IMPO / similar si
+                        aplica).
                       </p>
                     ) : null}
                   {latamRows.map((row, rowIdx) => (
@@ -1773,8 +1783,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         Agregar al presupuesto
                       </h2>
                       <p className="mt-0.5 text-[11px] leading-snug text-emerald-900/80">
-                        Zona distinta a las líneas de arriba: acá sumás una
-                        fila nueva (JSON del país o texto libre).
+                        Campos del JSON por país si hay origen que matchee, o
+                        línea personalizada en cualquier momento (sin origen).
                       </p>
                     </div>
                   </header>
@@ -1893,11 +1903,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   </div>
                 </section>
               </div>
-            ) : (
-              <p className="text-xs text-zinc-500">
-                No hay ítems de referencia LATAM para este origen en el JSON.
-              </p>
-            )}
 
             <hr
               className="my-8 border-0 border-t border-dashed border-zinc-300"
