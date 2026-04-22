@@ -3446,16 +3446,16 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 </span>
                 <div className="flex min-w-0 items-start gap-1.5">
                   <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <div className="relative min-w-0 flex-1">
+                  <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
                     <input
                       type="date"
                       value={quotedDate}
                       onChange={(e) => setQuotedDate(e.target.value)}
-                      className={`${pdfFieldTextClass} max-h-6 ${quotedDate ? "text-transparent caret-transparent" : ""}`}
+                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${quotedDate ? "text-transparent caret-transparent" : ""}`}
                       aria-label="Quotation date"
                     />
                     {quotedDate ? (
-                      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center text-[12px] leading-tight text-zinc-950">
+                      <span className="pointer-events-none absolute inset-0 flex items-center bg-white text-[12px] leading-tight text-zinc-950">
                         {formatIsoDateAsSpanishLong(quotedDate)}
                       </span>
                     ) : null}
@@ -3468,16 +3468,16 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 </span>
                 <div className="flex min-w-0 items-start gap-1.5">
                   <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <div className="relative min-w-0 flex-1">
+                  <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
                     <input
                       type="date"
                       value={arrivalDate}
                       onChange={(e) => setArrivalDate(e.target.value)}
-                      className={`${pdfFieldTextClass} max-h-6 ${arrivalDate ? "" : "text-transparent caret-transparent"}`}
+                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${arrivalDate ? "" : "text-transparent caret-transparent"}`}
                       aria-label="Trip date"
                     />
                     {!arrivalDate ? (
-                      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center text-[12px] leading-tight text-zinc-950">
+                      <span className="pointer-events-none absolute inset-0 flex items-center bg-white text-[12px] leading-tight text-zinc-950">
                         Not confirmed
                       </span>
                     ) : null}
