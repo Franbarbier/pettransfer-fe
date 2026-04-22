@@ -73,8 +73,21 @@ export function getCrateOptionsForOrigin(
 }
 
 /**
+ * Deja solo el número (con coma o punto como decimal) de un texto que puede
+ * venir con símbolos de moneda (ej. "USD 270", "$ 140", "270 USD"). Si no
+ * encuentra un número válido devuelve cadena vacía.
+ */
+function stripCurrencyFromCostText(raw: string): string {
+  const match = raw.match(/-?\d+(?:[.,]\d+)?/);
+  return match ? match[0] : "";
+}
+
+/**
  * Valor por defecto para el campo "Costo" al elegir una fila del JSON
  * (`crate_tariffs_by_country`) según el país inferido del origen.
+ *
+ * Devuelve solo el monto numérico; la moneda se muestra fuera (prefijo fijo
+ * "USD" en el PDF), así que sacamos cualquier "USD"/"$" del template.
  */
 export function defaultCostoFromCrateSelection(
   data: CrateTariffsByCountryData | null,
@@ -85,13 +98,48 @@ export function defaultCostoFromCrateSelection(
   const opts = getCrateOptionsForOrigin(data, originRaw);
   const c = opts.find((o) => o.id === crateId);
   if (!c) return "";
+  if (c.cost_amount != null && Number.isFinite(c.cost_amount)) {
+    return String(c.cost_amount);
+  }
   if (c.cost_label != null && String(c.cost_label).trim() !== "") {
-    return String(c.cost_label).trim();
+    const numeric = stripCurrencyFromCostText(String(c.cost_label));
+    if (numeric) return numeric;
   }
-  if (c.cost_amount != null) {
-    const cur = c.cost_currency === "ARS" ? "ARS" : "USD";
-    return `${cur} ${c.cost_amount}`;
-  }
+  return "";
+}
+
+/**
+ * Devuelve `true` si el `size_code` corresponde a una jaula tamaño "100" o
+ * "200" (acepta variantes con sufijo, ej. "200 (Larga)").
+ */
+export function isCatCrateSize(sizeCode: string | null | undefined): boolean {
+  if (!sizeCode) return false;
+  return /^(100|200)\b/.test(String(sizeCode).trim());
+}
+
+/**
+ * Filtra opciones de jaula según el tipo de mascota.
+ * - "gato": solo tamaños 100 y 200.
+ * - resto: sin filtrar.
+ */
+export function filterCrateOptionsForPet(
+  opts: CrateTariffOption[],
+  tipo: "perro" | "gato" | "",
+): CrateTariffOption[] {
+  if (tipo === "gato") return opts.filter((o) => isCatCrateSize(o.size_code));
+  return opts;
+}
+
+/**
+ * Para una mascota tipo "gato", elige el `id` por defecto: prioriza el primer
+ * tamaño "200"; si no existe, usa el primer "100"; si tampoco, devuelve "".
+ */
+export function defaultCrateIdForCat(opts: CrateTariffOption[]): string {
+  const cats = opts.filter((o) => isCatCrateSize(o.size_code));
+  const c200 = cats.find((o) => /^200\b/.test(String(o.size_code).trim()));
+  if (c200) return c200.id;
+  const c100 = cats.find((o) => /^100\b/.test(String(o.size_code).trim()));
+  if (c100) return c100.id;
   return "";
 }
 

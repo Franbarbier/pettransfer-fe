@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { getApiBaseUrl } from "@/services/api";
 
-const apiBase =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
-  "http://localhost:8080";
+const apiBase = getApiBaseUrl().replace(/\/$/, "");
 
 export default function CreateTestPage(): React.JSX.Element {
   const [status, setStatus] = useState<string>("");

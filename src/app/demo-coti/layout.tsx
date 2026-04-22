@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Demo cotización 0.2 · Pettransfer",
+  title: "Demo cotización · Pettransfer",
 };
 
 /**
@@ -14,10 +14,7 @@ export default function DemoCoti02Layout({
   children: React.ReactNode;
 }>) {
   return (
-    <div
-      className="min-h-screen bg-white text-zinc-900 [color-scheme:light]"
-      data-demo-coti="0.2"
-    >
+    <div className="min-h-screen bg-white text-zinc-900 [color-scheme:light]">
       {children}
     </div>
   );

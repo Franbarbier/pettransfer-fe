@@ -72,6 +72,18 @@ function originMatchesLabel(origin: string, label: string): boolean {
 }
 
 /**
+ * Claves del JSON que se consideran "de jaula" y se muestran como notas o
+ * sub-ítems dentro del bloque de crate de cada mascota (no dentro de la guía
+ * EXPO). Usamos esta lista tanto para excluir esas claves del panel EXPO como
+ * para detectar cuáles son "del crate".
+ */
+const JAULA_RELATED_KEYS = ["jaulas", "pre_entrega_de_la_jaula"] as const;
+
+function isJaulaRelatedKey(key: string): boolean {
+  return (JAULA_RELATED_KEYS as readonly string[]).includes(key);
+}
+
+/**
  * Si el origen coincide con algún `countries.*.label`, devuelve el texto de la entrada `jaulas` de ese país.
  */
 export function findJaulasNoteForOrigin(
@@ -95,6 +107,30 @@ export function findJaulasNoteForOrigin(
   return null;
 }
 
+/**
+ * Si el origen coincide con algún `countries.*.label`, devuelve el texto de
+ * la entrada `pre_entrega_de_la_jaula` de ese país. Se muestra como sub-ítem
+ * dentro del bloque de crate (no en la guía EXPO) y se puede agregar al
+ * presupuesto con un botón.
+ */
+export function findPreEntregaJaulaNoteForOrigin(
+  originRaw: string,
+): { countryKey: string; label: string; note: string } | null {
+  const origin = originRaw.trim();
+  if (!origin) return null;
+
+  for (const [countryKey, bundle] of Object.entries(root.countries)) {
+    if (!originMatchesLabel(origin, bundle.label)) continue;
+    for (const item of bundle.items) {
+      const v = item?.pre_entrega_de_la_jaula;
+      if (typeof v === "string" && v.length > 0) {
+        return { countryKey, label: bundle.label, note: v };
+      }
+    }
+  }
+  return null;
+}
+
 export type LatamProfitFieldRow = {
   key: string;
   clarification: string;
@@ -102,7 +138,8 @@ export type LatamProfitFieldRow = {
 
 /**
  * Ítems de `latam_profit_transport_by_country` para el país del origen.
- * Omite la clave `jaulas` (se muestra aparte con `findJaulasNoteForOrigin`).
+ * Omite las claves relacionadas a jaula (`jaulas` y `pre_entrega_de_la_jaula`)
+ * porque se muestran aparte dentro del bloque de crate de cada mascota.
  */
 export function getLatamProfitFieldsExcludingJaulas(
   originRaw: string,
@@ -120,7 +157,7 @@ export function getLatamProfitFieldsExcludingJaulas(
     for (const item of bundle.items) {
       if (!item || typeof item !== "object") continue;
       for (const [k, v] of Object.entries(item)) {
-        if (k === "jaulas") continue;
+        if (isJaulaRelatedKey(k)) continue;
         if (typeof v !== "string") continue;
         fields.push({ key: k, clarification: v });
       }
