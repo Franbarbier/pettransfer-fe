@@ -3451,11 +3451,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       type="date"
                       value={quotedDate}
                       onChange={(e) => setQuotedDate(e.target.value)}
-                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${quotedDate ? "text-transparent caret-transparent" : ""}`}
+                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${quotedDate ? "opacity-0" : ""}`}
                       aria-label="Quotation date"
                     />
                     {quotedDate ? (
-                      <span className="pointer-events-none absolute inset-0 flex items-center bg-white text-[12px] leading-tight text-zinc-950">
+                      <span className="pointer-events-none absolute inset-0 flex items-center text-[12px] leading-tight text-zinc-950">
                         {formatIsoDateAsSpanishLong(quotedDate)}
                       </span>
                     ) : null}
@@ -3473,11 +3473,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       type="date"
                       value={arrivalDate}
                       onChange={(e) => setArrivalDate(e.target.value)}
-                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${arrivalDate ? "" : "text-transparent caret-transparent"}`}
+                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${arrivalDate ? "" : "opacity-0"}`}
                       aria-label="Trip date"
                     />
                     {!arrivalDate ? (
-                      <span className="pointer-events-none absolute inset-0 flex items-center bg-white text-[12px] leading-tight text-zinc-950">
+                      <span className="pointer-events-none absolute inset-0 flex items-center text-[12px] leading-tight text-zinc-950">
                         Not confirmed
                       </span>
                     ) : null}
