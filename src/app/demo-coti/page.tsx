@@ -24,11 +24,7 @@ import {
   getCrateOptionsForOrigin,
   resolveCrateCountryKey,
 } from "@/lib/crateTariffsByCountry";
-import {
-  findJaulasNoteForOrigin,
-  findPreEntregaJaulaNoteForOrigin,
-  getLatamProfitFieldsExcludingJaulas,
-} from "@/lib/latamProfitTransport";
+import { useExpoItems } from "@/hooks/useExpoItems";
 import {
   type LocationSuggestOption,
   parseLocationSuggestList,
@@ -733,20 +729,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
     return () => ac.abort();
   }, [debouncedDest, animalCount, tradeDirection]);
 
-  const latamJaulasHint = useMemo(
-    () => findJaulasNoteForOrigin(origin),
-    [origin],
-  );
-
-  const latamPreEntregaHint = useMemo(
-    () => findPreEntregaJaulaNoteForOrigin(origin),
-    [origin],
-  );
-
-  const latamProfitFields = useMemo(
-    () => getLatamProfitFieldsExcludingJaulas(origin),
-    [origin],
-  );
+  const { latamJaulasHint, latamPreEntregaHint, latamProfitFields, expoLoading } =
+    useExpoItems(origin);
 
   /**
    * Al cambiar el país de referencia del JSON profit, se quitan solo las filas
@@ -2742,15 +2726,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
               {!origin.trim() ? (
                 <p className="mt-2 text-xs text-zinc-500">
                   Escribí un <span className="font-medium">origen</span> que
-                  coincida con un país en{" "}
-                  <code className="rounded bg-zinc-100 px-0.5 text-[11px]">
-                    latam_profit_transport_by_country.json
-                  </code>
-                  .
+                  coincida con un país en la guía EXPO.
                 </p>
+              ) : expoLoading ? (
+                <p className="mt-2 text-xs text-zinc-400">Cargando…</p>
               ) : !latamProfitFields ? (
                 <p className="mt-2 text-xs text-zinc-500">
-                  Este origen no coincide con un país en el JSON de referencia.
+                  Este origen no coincide con ningún país en la guía EXPO.
                 </p>
               ) : latamProfitFields.fields.length === 0 ? (
                 <p className="mt-2 text-xs text-zinc-500">
@@ -2853,16 +2835,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   los campos del JSON por país. Podés sumar{" "}
                   <span className="font-medium">líneas personalizadas</span> en
                   “Agregar al presupuesto”. Si elegís origen, se ofrecen ítems
-                  desde{" "}
-                  <code className="rounded bg-amber-100 px-0.5 text-[11px]">
-                    latam_profit_transport_by_country.json
-                  </code>
-                  .
+                  desde la guía EXPO por país.
                 </p>
               ) : null}
-              {origin.trim() && !latamProfitFields ? (
+              {origin.trim() && !expoLoading && !latamProfitFields ? (
                 <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-relaxed text-zinc-600">
-                  Este origen no coincide con un país en el JSON de referencia;
+                  Este origen no coincide con ningún país en la guía EXPO;
                   igual podés sumar líneas personalizadas o plantillas IMPO más
                   abajo.
                 </p>
