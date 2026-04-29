@@ -445,6 +445,41 @@ function parseBudgetAmount(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Extrae código IATA (3 letras mayúsculas) de un campo de texto. Si no encuentra, devuelve el texto completo. */
+function extractIataCode(text: string): string {
+  const t = text.trim();
+  if (!t) return t;
+  const paren = t.match(/\(([A-Z]{3})\)/);
+  if (paren) return paren[1];
+  const word = t.match(/\b([A-Z]{3})\b/);
+  if (word) return word[1];
+  return t;
+}
+
+type PlaceholderCtx = {
+  origen: string;
+  destino: string;
+  codigoAeropuerto: string;
+  codigoOrigen: string;
+  codigoDestino: string;
+  cantidadJaulas: string;
+  tamano: string;
+  petsDesc: string;
+};
+
+function resolvePlaceholders(text: string, ctx: PlaceholderCtx): string {
+  return text
+    .replace(/\[ORIGEN\]/g, ctx.origen || "[ORIGEN]")
+    .replace(/\[destino\]/g, ctx.destino || "[destino]")
+    .replace(/\[código aeropuerto\]/g, ctx.codigoAeropuerto)
+    .replace(/\[codigo origen\]/g, ctx.codigoOrigen)
+    .replace(/\[codigo destino\]/g, ctx.codigoDestino)
+    .replace(/\[cantidad de jaulas\]/g, ctx.cantidadJaulas || "[cantidad de jaulas]")
+    .replace(/\[tamaño\]/g, ctx.tamano || "[tamaño]")
+    .replace(/\[cantidad y tipo de mascotas\]/g, ctx.petsDesc || "[cantidad y tipo de mascotas]");
+  // [aerolinea] se deja sin reemplazar intencionalmente
+}
+
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -1016,7 +1051,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: f.key,
           title: latamJsonFieldTitle(f.key),
           price: "",
-          description: "",
+          description: f.description_es ?? f.description_en ?? "",
           internalNote: f.clarification,
         },
       ];
@@ -1067,7 +1102,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: f.key,
           title: latamJsonFieldTitle(f.key),
           price: "",
-          description: "",
+          description: f.description_es ?? f.description_en ?? "",
           internalNote: f.clarification,
         });
       }
@@ -1243,6 +1278,44 @@ export default function DemoCoti01Page(): React.JSX.Element {
     }
     return sum;
   }, [rightPaneBudgetLines]);
+
+  const placeholderCtx = useMemo((): PlaceholderCtx => {
+    const n = Math.min(animalCount, pets.length);
+    const activePets = pets.slice(0, n);
+    let dogs = 0, cats = 0;
+    for (const p of activePets) {
+      if (p.tipo === "perro") dogs++;
+      else if (p.tipo === "gato") cats++;
+    }
+    const descParts: string[] = [];
+    if (dogs > 0) descParts.push(`${dogs} ${dogs === 1 ? "perro" : "perros"}`);
+    if (cats > 0) descParts.push(`${cats} ${cats === 1 ? "gato" : "gatos"}`);
+    const petsDesc = descParts.join(" y ");
+
+    const crateCount = activePets.filter((p) => p.hasCrate).length;
+    const uniqueSizes = [
+      ...new Set(
+        activePets
+          .filter((p) => p.hasCrate && p.crateId)
+          .map((p) => crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? "")
+          .filter(Boolean),
+      ),
+    ];
+
+    const iataOrigin = extractIataCode(origin);
+    const iataDestino = extractIataCode(destination);
+
+    return {
+      origen: origin.trim() || "[ORIGEN]",
+      destino: destination.trim() || "[destino]",
+      codigoAeropuerto: iataOrigin || origin.trim() || "[código aeropuerto]",
+      codigoOrigen: iataOrigin || origin.trim() || "[codigo origen]",
+      codigoDestino: iataDestino || destination.trim() || "[codigo destino]",
+      cantidadJaulas: crateCount > 0 ? String(crateCount) : "",
+      tamano: uniqueSizes.join(", "),
+      petsDesc,
+    };
+  }, [animalCount, pets, crateOptionsForOrigin, origin, destination]);
 
   const detectedCrateCountryKey = useMemo(
     () => resolveCrateCountryKey(origin),
@@ -3067,15 +3140,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
                               />
                             </div>
                           </div>
-                          {row.source === "json" ||
-                          row.source === "impo" ||
-                          row.source === "similar" ? (
+                          {row.source === "impo" || row.source === "similar" ? (
                             <p className="font-mono text-[10px] text-zinc-400">
-                              {row.source === "impo"
-                                ? "IMPO · "
-                                : row.source === "similar"
-                                  ? "Similar · "
-                                  : "Clave JSON: "}
+                              {row.source === "impo" ? "IMPO · " : "Similar · "}
                               {row.fieldKey}
                             </p>
                           ) : null}
@@ -3088,7 +3155,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             </label>
                             <AutoHeightDescriptionTextarea
                               id={`dc02-latam-desc-${row.id}`}
-                              value={row.description}
+                              value={resolvePlaceholders(row.description, placeholderCtx)}
                               onChange={(e) =>
                                 updateLatamRow(row.id, {
                                   description: e.target.value,
@@ -3508,7 +3575,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                               aria-label={`Título ítem ${line.rowId}`}
                             />
                             <AutoHeightDescriptionTextarea
-                              value={line.description}
+                              value={resolvePlaceholders(line.description, placeholderCtx)}
                               onChange={(e) =>
                                 updateLatamRow(line.rowId, {
                                   description: e.target.value,
@@ -3527,7 +3594,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             </div>
                             {line.description.trim() !== "" ? (
                               <p className="mt-px whitespace-pre-wrap text-[10px] leading-snug text-zinc-700">
-                                {line.description}
+                                {resolvePlaceholders(line.description, placeholderCtx)}
                               </p>
                             ) : null}
                           </>
