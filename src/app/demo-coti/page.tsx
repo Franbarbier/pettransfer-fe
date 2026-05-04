@@ -184,6 +184,14 @@ type QuoteRow = {
   items?: QuoteItemJson[];
 };
 
+type OutlookMailStatus = {
+  configured: boolean;
+  connected: boolean;
+  email?: string;
+  displayName?: string;
+  error?: string;
+};
+
 function quoteAnimalsDisplay(q: QuoteRow): string {
   const desc = q.animals_description?.trim();
   if (desc) return desc;
@@ -604,6 +612,20 @@ export default function DemoCoti01Page(): React.JSX.Element {
     "before" | "after" | null
   >(null);
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(true);
+  const [emailDrawerOpen, setEmailDrawerOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailDownloadPdf, setEmailDownloadPdf] = useState(true);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailResult, setEmailResult] = useState<"ok" | "error" | null>(null);
+  const [emailError, setEmailError] = useState("");
+  const [outlookConnectModalOpen, setOutlookConnectModalOpen] = useState(false);
+  const [outlookStatus, setOutlookStatus] = useState<OutlookMailStatus | null>(
+    null,
+  );
+  const [outlookStatusLoading, setOutlookStatusLoading] = useState(true);
+  const [outlookDisconnecting, setOutlookDisconnecting] = useState(false);
   const [similarQuotesTableOpen, setSimilarQuotesTableOpen] =
     useState(false);
   const [impoGuidePanelOpen, setImpoGuidePanelOpen] = useState(false);
@@ -625,9 +647,69 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
   const originWrapRef = useRef<HTMLDivElement>(null);
   const destWrapRef = useRef<HTMLDivElement>(null);
+  const isFirstOutlookCheckRef = useRef(true);
 
   const debouncedOrigin = useDebounced(origin, 280);
   const debouncedDest = useDebounced(destination, 280);
+
+  const loadOutlookStatus = useCallback(async (): Promise<void> => {
+    setOutlookStatusLoading(true);
+    try {
+      const res = await fetch("/api/microsoft/oauth/status", {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as OutlookMailStatus;
+      setOutlookStatus(data);
+    } catch (e) {
+      setOutlookStatus({
+        configured: false,
+        connected: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setOutlookStatusLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOutlookStatus();
+  }, [loadOutlookStatus]);
+
+  useEffect(() => {
+    if (outlookStatusLoading) return;
+    if (!isFirstOutlookCheckRef.current) return;
+    isFirstOutlookCheckRef.current = false;
+    if (outlookStatus && !outlookStatus.connected) {
+      setOutlookConnectModalOpen(true);
+    }
+  }, [outlookStatusLoading, outlookStatus]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outlook = params.get("outlook");
+    const outlookMessage = params.get("outlook_message");
+    if (!outlook) return;
+
+    if (outlook === "connected") {
+      setEmailResult(null);
+      setEmailError("");
+      setOutlookConnectModalOpen(false);
+      setEmailDrawerOpen(true);
+      void loadOutlookStatus();
+    } else if (outlook === "error") {
+      setEmailResult("error");
+      setEmailError(outlookMessage || "No se pudo conectar la cuenta Outlook.");
+      setOutlookConnectModalOpen(false);
+      setEmailDrawerOpen(true);
+      void loadOutlookStatus();
+    }
+
+    params.delete("outlook");
+    params.delete("outlook_message");
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+  }, [loadOutlookStatus]);
 
   useEffect(() => {
     void (async () => {
@@ -1628,6 +1710,273 @@ export default function DemoCoti01Page(): React.JSX.Element {
           ? "Sin tarifas de jaula para este origen"
           : "Jaula / tamaño";
 
+  function openEmailDrawer(): void {
+    const selectedVendedor = vendedores.find((v) => v.id === selectedVendedorId);
+    const name = customerName.trim();
+    const subject = name
+      ? `Cotización LATAM Pet Transport — ${name}`
+      : "Cotización LATAM Pet Transport";
+    const vendedorName = selectedVendedor?.name ?? "LATAM Pet Transport";
+    const vendedorEmail = selectedVendedor?.email ?? "";
+    const body = [
+      name ? `Estimado/a ${name},` : "Estimado/a,",
+      "",
+      "Adjunto encontrará la cotización solicitada para el traslado de su mascota.",
+      "",
+      "Quedamos a disposición ante cualquier consulta.",
+      "",
+      `Saludos,`,
+      vendedorName,
+      "LATAM Pet Transport",
+      vendedorEmail,
+    ].join("\n");
+    setEmailSubject(subject);
+    setEmailBody(body);
+    setEmailResult(null);
+    setEmailError("");
+    setEmailDrawerOpen(true);
+  }
+
+  async function handleSendEmail(): Promise<void> {
+    const pane = document.getElementById("dc02-pdf-content") ?? document.getElementById("dc02-right-pane");
+    if (!pane) return;
+    setEmailSending(true);
+    setEmailResult(null);
+    setEmailError("");
+    try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+      const A4_WIDTH_PX = 794;
+
+      // Dimensiones del PDF — se calculan antes de capturar para usarlas en onclone
+      const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfPageH = pdf.internal.pageSize.getHeight();
+      const pageMarginPx = 20;
+      const usableH = pdfPageH - pageMarginPx * 2;
+
+      // ── Paso 1: transformar el DOM real para medir altura con CSS completo ──
+      // Reemplazamos los textareas con divs (display:none en el original)
+      // para que el scrollHeight real refleje el contenido sin rows forzados.
+      type TaReplacement = { ta: HTMLTextAreaElement; div: HTMLDivElement };
+      const taReplacements: TaReplacement[] = [];
+      pane.querySelectorAll<HTMLTextAreaElement>("textarea").forEach((ta) => {
+        const div = document.createElement("div");
+        div.textContent = ta.value;
+        div.className = ta.className;
+        div.style.whiteSpace = "pre-wrap";
+        div.style.height = "auto";
+        div.style.overflow = "visible";
+        ta.parentNode!.insertBefore(div, ta);
+        ta.style.display = "none";
+        taReplacements.push({ ta, div });
+      });
+
+      // Medición en el DOM real (con todo el CSS de Tailwind aplicado)
+      const measuredH = pane.scrollHeight;
+      const cloneContentH = Math.max(measuredH, Math.ceil(usableH));
+      const captureH = cloneContentH;
+
+      // ── Paso 2: capturar con html2canvas ──
+      const canvas = await html2canvas(pane, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        width: A4_WIDTH_PX,
+        height: captureH,
+        windowWidth: A4_WIDTH_PX,
+        windowHeight: captureH,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (cloneDoc, cloneEl) => {
+          // Limpiar constraints de todos los padres
+          let parent = cloneEl.parentElement;
+          while (parent && parent !== cloneDoc.body) {
+            parent.style.cssText = "width:auto;max-width:none;padding:0;margin:0;overflow:visible;border:none;box-shadow:none;border-radius:0;";
+            parent = parent.parentElement;
+          }
+          cloneEl.style.width = `${A4_WIDTH_PX}px`;
+          cloneEl.style.minWidth = `${A4_WIDTH_PX}px`;
+          cloneEl.style.height = "auto";
+          cloneEl.style.overflow = "visible";
+
+          // Forzar alineación vertical en flex containers del header de info
+          cloneEl.querySelectorAll<HTMLElement>(".items-center").forEach((el) => {
+            el.style.display = "flex";
+            el.style.alignItems = "center";
+          });
+
+          // SVGs: block + tamaño explícito
+          cloneEl.querySelectorAll<SVGElement>("svg").forEach((svg) => {
+            svg.style.display = "block";
+            svg.style.width = "14px";
+            svg.style.height = "14px";
+            svg.style.flexShrink = "0";
+            svg.style.transform = "translateY(2px)";
+          });
+
+          // Liberar overflow-hidden en wrappers de campos fecha
+          cloneEl.querySelectorAll<HTMLElement>('[class*="overflow-hidden"]').forEach((el) => {
+            el.style.overflow = "visible";
+            el.style.height = "auto";
+          });
+
+          // Reemplazar inputs con spans
+          cloneEl.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+            if (input.type === "date") {
+              input.style.opacity = "0";
+              input.style.position = "absolute";
+              return;
+            }
+            const span = cloneDoc.createElement("span");
+            span.textContent = input.value || "";
+            span.className = input.className;
+            input.parentNode?.replaceChild(span, input);
+          });
+
+          // Ocultar botones interactivos
+          cloneEl.querySelectorAll<HTMLElement>("button").forEach((btn) => {
+            btn.style.display = "none";
+          });
+
+          // Los textareas ya están ocultos (display:none) en el DOM real;
+          // sus divs reemplazantes también están clonados → no hace falta nada más.
+        },
+      });
+
+      // ── Paso 3: restaurar el DOM real ──
+      taReplacements.forEach(({ ta, div }) => {
+        ta.style.display = "";
+        div.parentNode?.removeChild(div);
+      });
+
+      // Usar cloneContentH (altura real post-transformaciones) para calcular páginas
+      const pixelsPerPoint = canvas.width / pdfW;
+      const contentPdfH = cloneContentH * (pdfW / A4_WIDTH_PX);
+      const rawPageCount = Math.max(1, Math.ceil(contentPdfH / usableH));
+      const lastPageContent = contentPdfH - (rawPageCount - 1) * usableH;
+      const pageCount = rawPageCount > 1 && lastPageContent < 30 ? rawPageCount - 1 : rawPageCount;
+
+      // effectiveCanvasH: píxeles del canvas que corresponden al contenido real
+      const effectiveCanvasH = Math.round(cloneContentH * pixelsPerPoint);
+
+      for (let i = 0; i < pageCount; i++) {
+        if (i > 0) pdf.addPage();
+        const srcY = Math.floor(i * usableH * pixelsPerPoint);
+        const srcH = Math.min(
+          Math.ceil(usableH * pixelsPerPoint),
+          effectiveCanvasH - srcY,
+        );
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = Math.ceil(usableH * pixelsPerPoint);
+        const ctx = pageCanvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+        }
+        pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, pageMarginPx, pdfW, usableH);
+      }
+
+      const pdfBase64 = pdf.output("datauristring").split(",")[1];
+
+      if (emailDownloadPdf) {
+        const filename = customerName.trim()
+          ? `cotizacion-${customerName.trim().replace(/\s+/g, "-")}.pdf`
+          : "cotizacion-latam-pet.pdf";
+        pdf.save(filename);
+      }
+
+      const emailRes = await fetch("/api/send-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: emailTo, pdfBase64, customerName, subject: emailSubject, body: emailBody }),
+      });
+      if (!emailRes.ok) {
+        const data = (await emailRes.json()) as { error?: string };
+        throw new Error(data.error ?? "Error desconocido");
+      }
+
+      // Guardar la quote en la DB
+      const activePets = pets.slice(0, Math.min(animalCount, pets.length));
+      const dogs = activePets.filter((p) => p.tipo === "perro").length;
+      const cats = activePets.filter((p) => p.tipo === "gato").length;
+      const parts: string[] = [];
+      if (dogs > 0) parts.push(`${dogs} perro${dogs > 1 ? "s" : ""}`);
+      if (cats > 0) parts.push(`${cats} gato${cats > 1 ? "s" : ""}`);
+      const animalsDescription = parts.join(" y ") || `${animalCount} mascota${animalCount > 1 ? "s" : ""}`;
+
+      const latamRowsById = new Map(latamRows.map((r) => [r.id, r]));
+      const items = rightPaneBudgetLines.map((line) => {
+        if (line.kind === "latam") {
+          const row = latamRowsById.get(line.rowId);
+          return {
+            fieldKey: row?.fieldKey ?? line.rowId,
+            title: line.title,
+            description: line.description,
+            price: line.price,
+            source: (row?.source ?? "custom") as "json" | "custom" | "impo" | "similar",
+          };
+        }
+        return {
+          fieldKey: `pet-crate-${line.petIndex}`,
+          title: line.title,
+          description: line.description,
+          price: line.price,
+          source: "custom" as const,
+        };
+      });
+
+      void fetch(`${apiBase}/quotes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName,
+          origin,
+          destination,
+          quotedDate,
+          arrivalDate,
+          animalsCount: animalCount,
+          animalsDescription,
+          items,
+          totalAmount: rightPaneBudgetTotal,
+          status: "sent",
+          emailSentTo: emailTo,
+        }),
+      }).catch((e: unknown) => {
+        console.error("[demo-coti] Error guardando quote:", e instanceof Error ? e.message : e);
+      });
+
+      setEmailResult("ok");
+    } catch (e) {
+      setEmailResult("error");
+      setEmailError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
+  async function handleDisconnectOutlook(): Promise<void> {
+    setOutlookDisconnecting(true);
+    try {
+      await fetch("/api/microsoft/oauth/disconnect", { method: "POST" });
+      setEmailResult(null);
+      setEmailError("");
+      await loadOutlookStatus();
+    } catch (e) {
+      setEmailResult("error");
+      setEmailError(
+        e instanceof Error ? e.message : "No se pudo desconectar Outlook.",
+      );
+    } finally {
+      setOutlookDisconnecting(false);
+    }
+  }
+
   return (
     <main className="min-h-screen w-full bg-white px-6 py-6 text-zinc-900">
       <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
@@ -1677,6 +2026,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
             </svg>
           </button>
         </div>
+        <button
+          type="button"
+          onClick={openEmailDrawer}
+          className="rounded-full border border-zinc-600 bg-zinc-700 px-3 py-2 text-xs font-medium text-white shadow-md transition hover:bg-zinc-800"
+          aria-label="Enviar cotización por email"
+          title="Enviar cotización por email"
+        >
+          Enviar PDF
+        </button>
         <button
           type="button"
           onClick={() => setPdfPreviewOpen((v) => !v)}
@@ -3420,6 +3778,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
             id="dc02-right-pane"
             className="h-fit w-full rounded-[20px] border border-zinc-300 bg-white py-[10%] px-[7%] shadow-[0_4px_28px_rgba(15,23,42,0.1)]"
           >
+            <div
+              id="dc02-pdf-content"
+              className="box-border flex min-h-[1050px] w-full flex-col px-[5%] py-6"
+            >
+            <div className="flex min-h-0 flex-1 flex-col">
             <div className="relative w-full">
               <Image
                 src={headerBanner}
@@ -3431,15 +3794,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
             </div>
 
             <div
-              className="mt-3 grid w-full grid-cols-1 gap-y-1.5 gap-x-3 rounded-lg px-2.5 py-2 sm:grid-flow-col sm:grid-cols-2 sm:grid-rows-3 sm:gap-y-1 sm:gap-x-4"
+              className="mt-3 grid w-full grid-flow-col grid-cols-2 grid-rows-3 gap-x-4 gap-y-1 rounded-lg px-5 pt-2 pb-5"
               style={{ backgroundColor: "#f0f0f0", colorScheme: "light" }}
             >
               <div className="min-w-0 flex flex-col gap-px">
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Customer
                 </span>
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
                   <input
                     type="text"
                     value={customerName}
@@ -3455,8 +3818,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Origin
                 </span>
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
                   <input
                     type="text"
                     value={origin}
@@ -3472,8 +3835,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Destination
                 </span>
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
                   <input
                     type="text"
                     value={destination}
@@ -3489,8 +3852,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Quotation date
                 </span>
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
                   <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
                     <input
                       type="date"
@@ -3511,8 +3874,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Trip date
                 </span>
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
                   <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
                     <input
                       type="date"
@@ -3533,8 +3896,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Pets
                 </span>
-                <div className="flex min-w-0 items-start gap-1.5">
-                  <UserFieldIcon className="mt-px h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
                   <span className="break-words text-[12px] leading-tight text-zinc-950">
                     {formatAnimalsLine(animalCount, pets)}
                   </span>
@@ -3557,11 +3920,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   rightPaneBudgetLines.map((line) => (
                     <div
                       key={line.id}
-                      className="group/pdf-budget-row flex flex-row items-start justify-between gap-1 border-b border-zinc-300 py-1"
+                      className="group/pdf-budget-row border-b border-zinc-300 pt-1 pb-2"
                     >
-                      <div className="min-w-0 flex-1 pr-1">
-                        {line.kind === "latam" ? (
-                          <>
+                      <div className="flex items-baseline justify-between gap-1">
+                        <div className="min-w-0 flex-1 pr-1">
+                          {line.kind === "latam" ? (
                             <input
                               type="text"
                               value={line.title}
@@ -3574,102 +3937,103 @@ export default function DemoCoti01Page(): React.JSX.Element {
                               placeholder="—"
                               aria-label={`Título ítem ${line.rowId}`}
                             />
-                            <AutoHeightDescriptionTextarea
-                              value={resolvePlaceholders(line.description, placeholderCtx)}
-                              onChange={(e) =>
-                                updateLatamRow(line.rowId, {
-                                  description: e.target.value,
-                                })
-                              }
-                              minHeightPx={34}
-                              className={pdfFieldDescClass}
-                              placeholder=" "
-                              aria-label={`Descripción ítem ${line.rowId}`}
-                            />
-                          </>
-                        ) : (
-                          <>
+                          ) : (
                             <div className="text-[11px] font-medium leading-tight text-zinc-950">
                               {line.title}
                             </div>
-                            {line.description.trim() !== "" ? (
-                              <p className="mt-px whitespace-pre-wrap text-[10px] leading-snug text-zinc-700">
-                                {resolvePlaceholders(line.description, placeholderCtx)}
-                              </p>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 items-start gap-0.5 self-start">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            line.kind === "latam"
-                              ? removeLatamRow(line.rowId)
-                              : removePetAtBudgetIndex(line.petIndex)
-                          }
-                          className="mt-0.5 shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/pdf-budget-row:opacity-100 group-focus-within/pdf-budget-row:opacity-100"
-                          title="Eliminar línea"
-                          aria-label={
-                            line.kind === "latam"
-                              ? `Eliminar del presupuesto: ${line.title}`
-                              : `Quitar mascota ${line.petIndex + 1} del presupuesto`
-                          }
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="h-3.5 w-3.5"
-                            aria-hidden
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            <line x1="10" x2="10" y1="11" y2="17" />
-                            <line x1="14" x2="14" y1="11" y2="17" />
-                          </svg>
-                        </button>
-                        <div className="flex shrink-0 items-baseline justify-end gap-1">
-                          <span
-                            className="shrink-0 font-mono text-[11px] font-medium uppercase tracking-wide text-zinc-500"
-                            aria-hidden
-                          >
-                            USD
-                          </span>
-                          {line.kind === "latam" ? (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={line.price}
-                              onChange={(e) =>
-                                updateLatamRow(line.rowId, {
-                                  price: e.target.value,
-                                })
-                              }
-                              className={pdfFieldMonoClass}
-                              placeholder="—"
-                              aria-label={`Precio USD ítem ${line.rowId}`}
-                            />
-                          ) : (
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={line.price}
-                              onChange={(e) =>
-                                updatePet(line.petIndex, {
-                                  costo: e.target.value,
-                                })
-                              }
-                              className={pdfFieldMonoClass}
-                              placeholder="—"
-                              aria-label={`Costo USD jaula mascota ${line.petIndex + 1}`}
-                            />
                           )}
                         </div>
+                        <div className="flex shrink-0 items-baseline gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              line.kind === "latam"
+                                ? removeLatamRow(line.rowId)
+                                : removePetAtBudgetIndex(line.petIndex)
+                            }
+                            className="shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/pdf-budget-row:opacity-100 group-focus-within/pdf-budget-row:opacity-100"
+                            title="Eliminar línea"
+                            aria-label={
+                              line.kind === "latam"
+                                ? `Eliminar del presupuesto: ${line.title}`
+                                : `Quitar mascota ${line.petIndex + 1} del presupuesto`
+                            }
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="h-3.5 w-3.5"
+                              aria-hidden
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" x2="10" y1="11" y2="17" />
+                              <line x1="14" x2="14" y1="11" y2="17" />
+                            </svg>
+                          </button>
+                          <div className="flex shrink-0 items-baseline justify-end gap-1">
+                            <span
+                              className="shrink-0 font-mono text-[11px] font-medium uppercase tracking-wide text-zinc-500"
+                              aria-hidden
+                            >
+                              USD
+                            </span>
+                            {line.kind === "latam" ? (
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={line.price}
+                                onChange={(e) =>
+                                  updateLatamRow(line.rowId, {
+                                    price: e.target.value,
+                                  })
+                                }
+                                className={pdfFieldMonoClass}
+                                placeholder="—"
+                                aria-label={`Precio USD ítem ${line.rowId}`}
+                              />
+                            ) : (
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={line.price}
+                                onChange={(e) =>
+                                  updatePet(line.petIndex, {
+                                    costo: e.target.value,
+                                  })
+                                }
+                                className={pdfFieldMonoClass}
+                                placeholder="—"
+                                aria-label={`Costo USD jaula mascota ${line.petIndex + 1}`}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="min-w-0 pr-1">
+                        {line.kind === "latam" ? (
+                          <AutoHeightDescriptionTextarea
+                            value={resolvePlaceholders(line.description, placeholderCtx)}
+                            onChange={(e) =>
+                              updateLatamRow(line.rowId, {
+                                description: e.target.value,
+                              })
+                            }
+                            minHeightPx={34}
+                            className={pdfFieldDescClass}
+                            placeholder=" "
+                            aria-label={`Descripción ítem ${line.rowId}`}
+                          />
+                        ) : line.description.trim() !== "" ? (
+                          <p className="mt-px whitespace-pre-wrap text-[10px] leading-snug text-zinc-700">
+                            {resolvePlaceholders(line.description, placeholderCtx)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   ))
@@ -3693,16 +4057,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 </div>
               </div>
             </div>
+            </div>
 
-            <hr
-              className="my-3 border-0 border-t border-dashed border-zinc-300"
-              aria-hidden
-            />
-            <div
-              className="space-y-2.5"
-              role="region"
-              aria-label="Contract and contact"
-            >
+            <div id="dc02-pdf-footer" className="mt-auto pt-4">
+              <hr
+                className="mb-3 border-0 border-t border-dashed border-zinc-300"
+                aria-hidden
+              />
               <div>
                 <p className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Conditions of contract
@@ -3715,7 +4076,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   aria-label="Conditions of contract"
                 />
               </div>
-              <div>
+              <div className="pt-2">
                 <p className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-800">
                   Contact
                 </p>
@@ -3727,11 +4088,226 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   aria-label="Contact"
                 />
               </div>
-            </div>
+            </div>{/* end dc02-pdf-content */}
+          </div>
           </div>
         </section>
         ) : null}
       </div>
+
+      {/* Modal: conectar Outlook (se muestra al cargar si no hay cuenta conectada) */}
+      {outlookConnectModalOpen ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Conectar cuenta Outlook"
+        >
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-2 text-sm font-semibold text-zinc-900">
+              Conectar cuenta Outlook
+            </h2>
+            <p className="mb-5 text-sm text-zinc-600">
+              Para enviar cotizaciones por email necesitás autorizar una cuenta de Outlook.
+              Podés hacerlo ahora o más tarde desde el botón &quot;Enviar PDF&quot;.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOutlookConnectModalOpen(false)}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100"
+              >
+                Ahora no
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/api/microsoft/oauth/start?returnTo=/demo-coti";
+                }}
+                className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-900"
+              >
+                Conectar Outlook
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Drawer: enviar cotización por email */}
+      {emailDrawerOpen ? (
+        <>
+          <div
+            className="fixed inset-0 z-[70] bg-black/30"
+            aria-hidden="true"
+            onClick={() => { if (!emailSending) setEmailDrawerOpen(false); }}
+          />
+          <div
+            className="fixed right-0 top-0 z-[70] flex h-full w-full max-w-md flex-col bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Enviar cotización por email"
+          >
+            {/* Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-5 py-4">
+              <h2 className="text-sm font-semibold text-zinc-900">
+                Enviar cotización por email
+              </h2>
+              <button
+                type="button"
+                onClick={() => { if (!emailSending) setEmailDrawerOpen(false); }}
+                className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Cuenta remitente */}
+            <div className="shrink-0 border-b border-zinc-200 px-5 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                    Outlook remitente
+                  </p>
+                  {outlookStatusLoading ? (
+                    <p className="mt-0.5 text-xs text-zinc-500">Verificando conexión…</p>
+                  ) : outlookStatus?.connected ? (
+                    <p className="mt-0.5 text-xs text-zinc-800">
+                      <strong>{outlookStatus.displayName || outlookStatus.email}</strong>
+                      {outlookStatus.email ? ` · ${outlookStatus.email}` : ""}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-xs text-zinc-600">
+                      {outlookStatus?.error || "Sin cuenta conectada."}
+                    </p>
+                  )}
+                </div>
+                {outlookStatus?.connected ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleDisconnectOutlook()}
+                    disabled={outlookDisconnecting || emailSending}
+                    className="shrink-0 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50"
+                  >
+                    {outlookDisconnecting ? "Desconectando…" : "Desconectar"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = "/api/microsoft/oauth/start?returnTo=/demo-coti";
+                    }}
+                    disabled={outlookStatusLoading || emailSending || !outlookStatus?.configured}
+                    className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-900 disabled:opacity-50"
+                  >
+                    Conectar Outlook
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Formulario */}
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {emailResult === "ok" ? (
+                <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
+                  Email enviado correctamente a <strong>{emailTo}</strong>.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {emailResult === "error" ? (
+                    <div className="rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-800">
+                      {emailError || "Error al enviar el email."}
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-zinc-700">
+                      Destinatario
+                    </label>
+                    <input
+                      type="email"
+                      value={emailTo}
+                      onChange={(e) => setEmailTo(e.target.value)}
+                      placeholder="cliente@ejemplo.com"
+                      className={inputClass}
+                      disabled={emailSending}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-zinc-700">
+                      Asunto
+                    </label>
+                    <input
+                      type="text"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      className={inputClass}
+                      disabled={emailSending}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-zinc-700">
+                      Cuerpo del email
+                    </label>
+                    <textarea
+                      value={emailBody}
+                      onChange={(e) => setEmailBody(e.target.value)}
+                      rows={10}
+                      className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
+                      disabled={emailSending}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="shrink-0 flex items-center justify-between gap-2 border-t border-zinc-200 px-5 py-4">
+              {emailResult !== "ok" ? (
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-600 select-none">
+                  <input
+                    type="checkbox"
+                    checked={emailDownloadPdf}
+                    onChange={(e) => setEmailDownloadPdf(e.target.checked)}
+                    disabled={emailSending}
+                    className="h-3.5 w-3.5 accent-zinc-700"
+                  />
+                  Descargar PDF
+                </label>
+              ) : <span />}
+              <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEmailDrawerOpen(false)}
+                disabled={emailSending}
+                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50"
+              >
+                {emailResult === "ok" ? "Cerrar" : "Cancelar"}
+              </button>
+              {emailResult !== "ok" && (
+                <button
+                  type="button"
+                  onClick={() => void handleSendEmail()}
+                  disabled={
+                    emailSending ||
+                    !emailTo.trim() ||
+                    !emailSubject.trim() ||
+                    outlookStatusLoading ||
+                    !outlookStatus?.connected
+                  }
+                  className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  {emailSending ? "Enviando…" : "Enviar"}
+                </button>
+              )}
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
     </main>
   );
 }

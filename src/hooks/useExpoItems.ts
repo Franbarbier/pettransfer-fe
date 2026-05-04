@@ -17,6 +17,7 @@ type ExpoItem = {
 };
 
 type ExpoOriginData = {
+  match?: null;
   country: string;
   label: string;
   notes: string[];
@@ -55,9 +56,12 @@ export function useExpoItems(origin: string): UseExpoItemsResult {
     })
       .then(async (res) => {
         if (ac.signal.aborted) return;
-        if (res.status === 404) { setData(null); return; }
         if (!res.ok) throw new Error(`Error ${res.status}`);
         const json = (await res.json()) as ExpoOriginData;
+        if ("match" in json && json.match === null) {
+          setData(null);
+          return;
+        }
         setData(json);
       })
       .catch(() => { if (!ac.signal.aborted) setData(null); })
