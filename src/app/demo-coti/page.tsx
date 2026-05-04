@@ -1059,31 +1059,34 @@ export default function DemoCoti01Page(): React.JSX.Element {
     );
   }
 
-  function buildImpoTemplateRow(
-    template: ImpoTemplateMatch,
-    itemIndex: number,
-  ): LatamFieldRow | null {
-    const it = template.quoted_items[itemIndex];
-    if (!it) return null;
-    const label = it.label.trim();
-    if (!label) return null;
-    const fieldKey = `impo_${template.title}_${it.item_number ?? "u"}_${itemIndex}`;
-    const internalBits: string[] = [];
-    if (it.note?.trim()) internalBits.push(it.note.trim());
-    internalBits.push(`${template.file_name} · ${template.title}`);
-    return {
-      id: newLatamRowId(),
-      source: "impo",
-      fieldKey,
-      title: label,
-      price:
-        it.amount != null && Number.isFinite(it.amount)
-          ? String(it.amount)
-          : "",
-      description: impoCustomerTextForQuotedItem(it, template),
-      internalNote: internalBits.join(" · "),
-    };
-  }
+  const buildImpoTemplateRow = useCallback(
+    (
+      template: ImpoTemplateMatch,
+      itemIndex: number,
+    ): LatamFieldRow | null => {
+      const it = template.quoted_items[itemIndex];
+      if (!it) return null;
+      const label = it.label.trim();
+      if (!label) return null;
+      const fieldKey = `impo_${template.title}_${it.item_number ?? "u"}_${itemIndex}`;
+      const internalBits: string[] = [];
+      if (it.note?.trim()) internalBits.push(it.note.trim());
+      internalBits.push(`${template.file_name} · ${template.title}`);
+      return {
+        id: newLatamRowId(),
+        source: "impo",
+        fieldKey,
+        title: label,
+        price:
+          it.amount != null && Number.isFinite(it.amount)
+            ? String(it.amount)
+            : "",
+        description: impoCustomerTextForQuotedItem(it, template),
+        internalNote: internalBits.join(" · "),
+      };
+    },
+    [],
+  );
 
   function addImpoTemplateItem(
     template: ImpoTemplateMatch,
@@ -1099,23 +1102,26 @@ export default function DemoCoti01Page(): React.JSX.Element {
     });
   }
 
-  function addImpoTemplateItems(template: ImpoTemplateMatch): void {
-    const rows: LatamFieldRow[] = [];
-    for (let idx = 0; idx < template.quoted_items.length; idx++) {
-      const row = buildImpoTemplateRow(template, idx);
-      if (row) rows.push(row);
-    }
-    if (rows.length === 0) return;
-    setLatamRows((prev) => {
-      const existingKeys = new Set(
-        prev.filter((r) => r.source === "impo").map((r) => r.fieldKey),
-      );
-      const toAppend = rows.filter((r) => !existingKeys.has(r.fieldKey));
-      if (toAppend.length === 0) return prev;
-      for (const r of toAppend) existingKeys.add(r.fieldKey);
-      return [...prev, ...toAppend];
-    });
-  }
+  const addImpoTemplateItems = useCallback(
+    (template: ImpoTemplateMatch): void => {
+      const rows: LatamFieldRow[] = [];
+      for (let idx = 0; idx < template.quoted_items.length; idx++) {
+        const row = buildImpoTemplateRow(template, idx);
+        if (row) rows.push(row);
+      }
+      if (rows.length === 0) return;
+      setLatamRows((prev) => {
+        const existingKeys = new Set(
+          prev.filter((r) => r.source === "impo").map((r) => r.fieldKey),
+        );
+        const toAppend = rows.filter((r) => !existingKeys.has(r.fieldKey));
+        if (toAppend.length === 0) return prev;
+        for (const r of toAppend) existingKeys.add(r.fieldKey);
+        return [...prev, ...toAppend];
+      });
+    },
+    [buildImpoTemplateRow],
+  );
 
   function addLatamJsonRow(jsonKey: string): void {
     if (!latamProfitFields?.fields) return;
@@ -1167,7 +1173,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     });
   }
 
-  function addAllLatamJsonGuideItems(): void {
+  const addAllLatamJsonGuideItems = useCallback((): void => {
     const fields = latamProfitFields?.fields;
     if (!fields?.length) return;
     setLatamRows((prev) => {
@@ -1191,7 +1197,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       if (newRows.length === 0) return prev;
       return [...prev, ...newRows];
     });
-  }
+  }, [latamProfitFields]);
 
   function submitLatamCustom(): void {
     const t = latamCustomTitle.trim();
@@ -1245,7 +1251,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setLatamRows((prev) => prev.filter((r) => r.source !== "impo"));
     autoAddedImpoSigRef.current = sig;
     addImpoTemplateItems(preferred);
-  }, [impoTemplates, impoTemplatesLoading, tradeDirection]);
+  }, [addImpoTemplateItems, impoTemplates, impoTemplatesLoading, tradeDirection]);
 
   useEffect(() => {
     const includeExpo =
@@ -1258,7 +1264,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     if (autoAddedExpoSigRef.current === sig) return;
     autoAddedExpoSigRef.current = sig;
     addAllLatamJsonGuideItems();
-  }, [latamProfitFields, tradeDirection]);
+  }, [addAllLatamJsonGuideItems, latamProfitFields, tradeDirection]);
 
   /**
    * Si el usuario cambia la dirección y deja de incluir IMPO/EXPO, quitamos
