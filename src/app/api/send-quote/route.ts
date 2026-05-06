@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  getMicrosoftGraphAccessToken,
-  getMicrosoftMailConnectionStatus,
-} from "@/lib/microsoftGraphMail";
+  APP_SESSION_COOKIE,
+  createAppSessionToken,
+  getAppSessionCookieMaxAge,
+  refreshMicrosoftAccessTokenForSession,
+  verifyAppSessionToken,
+} from "@/lib/appAuth";
 
 export const runtime = "nodejs";
 
@@ -37,23 +40,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email destinatario inválido" }, { status: 400 });
   }
 
-  const connection = await getMicrosoftMailConnectionStatus();
-  if (!connection.configured) {
+  const session = verifyAppSessionToken(req.cookies.get(APP_SESSION_COOKIE)?.value);
+  if (!session) {
     return NextResponse.json(
       {
-        error:
-          connection.error ||
-          "Microsoft Graph no está configurado en el servidor.",
+        error: "La sesión de la app expiró. Volvé a iniciar sesión.",
       },
-      { status: 503 },
+      { status: 401 },
     );
   }
 
-  if (!connection.connected) {
+  if (!session.microsoftRefreshToken) {
     return NextResponse.json(
       {
         error:
-          "La cuenta Outlook todavía no fue autorizada. Conectala antes de enviar el mail.",
+          "Tu sesión no tiene permisos para enviar mails. Cerrá sesión y volvé a entrar con Microsoft.",
       },
       { status: 409 },
     );
@@ -66,7 +67,8 @@ export async function POST(req: NextRequest) {
   const pdfBuffer = Buffer.from(pdfBase64, "base64");
 
   try {
-    const accessToken = await getMicrosoftGraphAccessToken();
+    const { accessToken, session: refreshedSession } =
+      await refreshMicrosoftAccessTokenForSession(session);
     const graphRes = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
       method: "POST",
       headers: {
@@ -104,6 +106,19 @@ export async function POST(req: NextRequest) {
       };
       throw new Error(data.error?.message || `Microsoft Graph respondió ${graphRes.status}.`);
     }
+
+    const response = NextResponse.json({
+      ok: true,
+      from: refreshedSession.email,
+    });
+    response.cookies.set(APP_SESSION_COOKIE, createAppSessionToken(refreshedSession), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: req.nextUrl.protocol === "https:",
+      path: "/",
+      maxAge: getAppSessionCookieMaxAge(),
+    });
+    return response;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[send-quote] Error enviando email con Microsoft Graph:", msg);
@@ -112,9 +127,4 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
-
-  return NextResponse.json({
-    ok: true,
-    from: connection.email,
-  });
 }

@@ -144,7 +144,7 @@ async function refreshDropboxAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-async function postDropboxJson<TResponse>(
+async function postDropboxJson<TResponse extends object>(
   url: string,
   payload: Record<string, unknown>,
 ): Promise<TResponse> {
