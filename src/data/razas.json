@@ -1,0 +1,1652 @@
+[
+  {
+    "nombre_es": "Affenpinscher",
+    "nombre_en": "Affenpinscher",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "American Bully",
+    "nombre_en": "American Bully",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Boston Terrier",
+    "nombre_en": "Boston Terrier",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Bóxer",
+    "nombre_en": "Boxer",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Grifón de Bruselas",
+    "nombre_en": "Brussels Griffon",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Bulldog Inglés",
+    "nombre_en": "English Bulldog",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Bulldog Francés",
+    "nombre_en": "French Bulldog",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Bulldog Americano",
+    "nombre_en": "American Bulldog",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Bullmastiff",
+    "nombre_en": "Bullmastiff",
+    "tipo": "perro",
+    "categoria": "braquicéfalo_y_fuerte"
+  },
+  {
+    "nombre_es": "Cane Corso / Mastín Italiano",
+    "nombre_en": "Cane Corso (Italian Mastiff)",
+    "tipo": "perro",
+    "categoria": "braquicéfalo_y_fuerte"
+  },
+  {
+    "nombre_es": "Cavalier King Charles Spaniel",
+    "nombre_en": "Cavalier King Charles Spaniel",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Chow Chow",
+    "nombre_en": "Chow Chow",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Dogo de Burdeos",
+    "nombre_en": "Dogue de Bordeaux (Bordeaux Mastiff)",
+    "tipo": "perro",
+    "categoria": "braquicéfalo_y_fuerte"
+  },
+  {
+    "nombre_es": "Spaniel Inglés de Juguete",
+    "nombre_en": "English Toy Spaniel",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Chin Japonés",
+    "nombre_en": "Japanese Chin",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Lhasa Apso",
+    "nombre_en": "Lhasa Apso",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Mastín Napolitano",
+    "nombre_en": "Neapolitan Mastiff",
+    "tipo": "perro",
+    "categoria": "braquicéfalo_y_fuerte"
+  },
+  {
+    "nombre_es": "Pequinés",
+    "nombre_en": "Pekingese",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Carlino / Pug",
+    "nombre_en": "Pug",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Shar Pei",
+    "nombre_en": "Shar Pei",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Shih Tzu",
+    "nombre_en": "Shih Tzu",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Spaniel Tibetano",
+    "nombre_en": "Tibetan Spaniel",
+    "tipo": "perro",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "American Pit Bull Terrier",
+    "nombre_en": "American Pit Bull Terrier",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "American Staffordshire Terrier",
+    "nombre_en": "American Staffordshire Terrier",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Staffordshire Bull Terrier",
+    "nombre_en": "Staffordshire Bull Terrier",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Bull Terrier",
+    "nombre_en": "Bull Terrier",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Rottweiler",
+    "nombre_en": "Rottweiler",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Doberman Pinscher",
+    "nombre_en": "Doberman Pinscher",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Dogo Argentino",
+    "nombre_en": "Dogo Argentino",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Fila Brasileño",
+    "nombre_en": "Fila Brasileiro",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Tosa Inu / Tosa Japonés",
+    "nombre_en": "Japanese Tosa (Tosa Inu)",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Presa Canario / Dogo Canario",
+    "nombre_en": "Presa Canario (Dogo Canario)",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Akita Inu / Akita Americano",
+    "nombre_en": "Akita Inu / American Akita",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Mastín Inglés",
+    "nombre_en": "English Mastiff",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Pastor del Cáucaso",
+    "nombre_en": "Caucasian Shepherd Dog",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Karabash / Pastor de Anatolia",
+    "nombre_en": "Karabash (Anatolian Shepherd)",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Híbrido de Lobo",
+    "nombre_en": "Wolf-dog Hybrid",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Bandog",
+    "nombre_en": "Bandog",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Ca de Bou / Perro de Presa Mallorquín",
+    "nombre_en": "Ca de Bou (Majorcan Mastiff)",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Labrador Retriever",
+    "nombre_en": "Labrador Retriever",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Golden Retriever",
+    "nombre_en": "Golden Retriever",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor Alemán",
+    "nombre_en": "German Shepherd",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Caniche / Poodle",
+    "nombre_en": "Poodle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Beagle",
+    "nombre_en": "Beagle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Dachshund / Teckel",
+    "nombre_en": "Dachshund",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Yorkshire Terrier",
+    "nombre_en": "Yorkshire Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Chihuahua",
+    "nombre_en": "Chihuahua",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Maltés",
+    "nombre_en": "Maltese",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Schnauzer Miniatura",
+    "nombre_en": "Miniature Schnauzer",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Schnauzer Estándar",
+    "nombre_en": "Standard Schnauzer",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Schnauzer Gigante",
+    "nombre_en": "Giant Schnauzer",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cocker Spaniel Inglés",
+    "nombre_en": "English Cocker Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cocker Spaniel Americano",
+    "nombre_en": "American Cocker Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Springer Spaniel Inglés",
+    "nombre_en": "English Springer Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Border Collie",
+    "nombre_en": "Border Collie",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Collie de pelo largo",
+    "nombre_en": "Rough Collie",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Collie de pelo corto",
+    "nombre_en": "Smooth Collie",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Shetland Sheepdog",
+    "nombre_en": "Shetland Sheepdog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor Australiano",
+    "nombre_en": "Australian Shepherd",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Husky Siberiano",
+    "nombre_en": "Siberian Husky",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Malamute de Alaska",
+    "nombre_en": "Alaskan Malamute",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Samoyedo",
+    "nombre_en": "Samoyed",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Spitz Alemán / Pomerania",
+    "nombre_en": "Pomeranian",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Spitz Japonés",
+    "nombre_en": "Japanese Spitz",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Shiba Inu",
+    "nombre_en": "Shiba Inu",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Gran Danés",
+    "nombre_en": "Great Dane",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "San Bernardo",
+    "nombre_en": "Saint Bernard",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Leonberger",
+    "nombre_en": "Leonberger",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Terranova",
+    "nombre_en": "Newfoundland",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor de Berna / Boyero de Berna",
+    "nombre_en": "Bernese Mountain Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Gran Pirineo / Montaña de los Pirineos",
+    "nombre_en": "Great Pyrenees",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Weimaraner",
+    "nombre_en": "Weimaraner",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Vizsla",
+    "nombre_en": "Vizsla",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Braco Alemán de pelo corto",
+    "nombre_en": "German Shorthaired Pointer",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Braco Alemán de pelo duro",
+    "nombre_en": "German Wirehaired Pointer",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pointer Inglés",
+    "nombre_en": "English Pointer",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Setter Irlandés",
+    "nombre_en": "Irish Setter",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Setter Inglés",
+    "nombre_en": "English Setter",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Setter Gordon",
+    "nombre_en": "Gordon Setter",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Basset Hound",
+    "nombre_en": "Basset Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bloodhound / Sabueso de San Huberto",
+    "nombre_en": "Bloodhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Galgo Inglés / Greyhound",
+    "nombre_en": "Greyhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Galgo Español",
+    "nombre_en": "Spanish Greyhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Whippet",
+    "nombre_en": "Whippet",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Borzoi / Galgo Ruso",
+    "nombre_en": "Borzoi",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Saluki",
+    "nombre_en": "Saluki",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Afghan Hound / Galgo Afgano",
+    "nombre_en": "Afghan Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Rhodesian Ridgeback",
+    "nombre_en": "Rhodesian Ridgeback",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Dálmata",
+    "nombre_en": "Dalmatian",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Caniche Toy",
+    "nombre_en": "Toy Poodle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Caniche Miniatura",
+    "nombre_en": "Miniature Poodle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "West Highland White Terrier",
+    "nombre_en": "West Highland White Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Scottish Terrier",
+    "nombre_en": "Scottish Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cairn Terrier",
+    "nombre_en": "Cairn Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Jack Russell Terrier",
+    "nombre_en": "Jack Russell Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Parson Russell Terrier",
+    "nombre_en": "Parson Russell Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Fox Terrier de pelo liso",
+    "nombre_en": "Smooth Fox Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Fox Terrier de pelo duro",
+    "nombre_en": "Wire Fox Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Airedale Terrier",
+    "nombre_en": "Airedale Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bedlington Terrier",
+    "nombre_en": "Bedlington Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Welsh Terrier",
+    "nombre_en": "Welsh Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Irish Terrier",
+    "nombre_en": "Irish Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Lakeland Terrier",
+    "nombre_en": "Lakeland Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Norfolk Terrier",
+    "nombre_en": "Norfolk Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Norwich Terrier",
+    "nombre_en": "Norwich Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Dandie Dinmont Terrier",
+    "nombre_en": "Dandie Dinmont Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Miniature Pinscher",
+    "nombre_en": "Miniature Pinscher",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pinscher Alemán",
+    "nombre_en": "German Pinscher",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Hovawart",
+    "nombre_en": "Hovawart",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor Belga Malinois",
+    "nombre_en": "Belgian Malinois",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor Belga Tervueren",
+    "nombre_en": "Belgian Tervuren",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor Belga Groenendael",
+    "nombre_en": "Belgian Sheepdog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor Belga Laekenois",
+    "nombre_en": "Belgian Laekenois",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor de Shetland",
+    "nombre_en": "Shetland Sheepdog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bouvier de Flandes",
+    "nombre_en": "Bouvier des Flandres",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Boyero de Berna",
+    "nombre_en": "Bernese Mountain Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Entlebucher",
+    "nombre_en": "Entlebucher Mountain Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Appenzeller",
+    "nombre_en": "Appenzeller Sennenhund",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Boyero de Appenzell",
+    "nombre_en": "Appenzell Cattle Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Corgi Galés de Pembroke",
+    "nombre_en": "Pembroke Welsh Corgi",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Corgi Galés de Cardigan",
+    "nombre_en": "Cardigan Welsh Corgi",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Australian Cattle Dog / Blue Heeler",
+    "nombre_en": "Australian Cattle Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Australian Kelpie",
+    "nombre_en": "Australian Kelpie",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Labradoodle",
+    "nombre_en": "Labradoodle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Goldendoodle",
+    "nombre_en": "Goldendoodle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cockapoo",
+    "nombre_en": "Cockapoo",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bichón Frisé",
+    "nombre_en": "Bichon Frise",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bichón Habanero",
+    "nombre_en": "Havanese",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bichón Boloñés",
+    "nombre_en": "Bolognese",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bichón Maltés",
+    "nombre_en": "Maltese",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cotón de Tuléar",
+    "nombre_en": "Coton de Tulear",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Löwchen",
+    "nombre_en": "Lowchen",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Papillón",
+    "nombre_en": "Papillon",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Phalène",
+    "nombre_en": "Phalene",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Galgo Italiano",
+    "nombre_en": "Italian Greyhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "King Charles Spaniel",
+    "nombre_en": "King Charles Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Toy Fox Terrier",
+    "nombre_en": "Toy Fox Terrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Spitz Enano / Pomerania",
+    "nombre_en": "Pomeranian",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Basenji",
+    "nombre_en": "Basenji",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro Sin Pelo del Perú",
+    "nombre_en": "Peruvian Inca Orchid",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Xoloitzcuintle",
+    "nombre_en": "Xoloitzcuintli",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cirneco del Etna",
+    "nombre_en": "Cirneco dell'Etna",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Podenco Ibicenco",
+    "nombre_en": "Ibizan Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pharaoh Hound / Kelb tal-Fenek",
+    "nombre_en": "Pharaoh Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de agua español",
+    "nombre_en": "Spanish Water Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de agua portugués",
+    "nombre_en": "Portuguese Water Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Poodle Grande / Caniche Grande",
+    "nombre_en": "Standard Poodle",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Lagotto Romagnolo",
+    "nombre_en": "Lagotto Romagnolo",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Barbet",
+    "nombre_en": "Barbet",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Irish Water Spaniel",
+    "nombre_en": "Irish Water Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Curly-Coated Retriever",
+    "nombre_en": "Curly-Coated Retriever",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Flat-Coated Retriever",
+    "nombre_en": "Flat-Coated Retriever",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Nova Scotia Duck Tolling Retriever",
+    "nombre_en": "Nova Scotia Duck Tolling Retriever",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Chesapeake Bay Retriever",
+    "nombre_en": "Chesapeake Bay Retriever",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Sussex Spaniel",
+    "nombre_en": "Sussex Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Clumber Spaniel",
+    "nombre_en": "Clumber Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Field Spaniel",
+    "nombre_en": "Field Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Welsh Springer Spaniel",
+    "nombre_en": "Welsh Springer Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Boykin Spaniel",
+    "nombre_en": "Boykin Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Braco Italiano",
+    "nombre_en": "Italian Pointer (Bracco Italiano)",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Spinone Italiano",
+    "nombre_en": "Italian Spinone",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Epagneul Breton / Bretón",
+    "nombre_en": "Brittany Spaniel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Kuvasz",
+    "nombre_en": "Kuvasz",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Komondor",
+    "nombre_en": "Komondor",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Puli",
+    "nombre_en": "Puli",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pumi",
+    "nombre_en": "Pumi",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Mudi",
+    "nombre_en": "Mudi",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor de las Llanuras de Hungría",
+    "nombre_en": "Puli",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Ovcharka del Asia Central",
+    "nombre_en": "Central Asian Shepherd Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de Montana del Pirineo",
+    "nombre_en": "Pyrenean Mastiff",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Mastín Español",
+    "nombre_en": "Spanish Mastiff",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de Pastor de los Alpes",
+    "nombre_en": "Bernese Mountain Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Alano Español",
+    "nombre_en": "Spanish Alano",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Dogo Brasileño / Fila",
+    "nombre_en": "Brazilian Mastiff",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Rafeiro do Alentejo",
+    "nombre_en": "Alentejo Mastiff",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cão de Castro Laboreiro",
+    "nombre_en": "Castro Laboreiro Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Ovejero Magallánico",
+    "nombre_en": "Patagonian Sheepdog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro sin pelo peruano",
+    "nombre_en": "Peruvian Hairless Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Fila de São Miguel",
+    "nombre_en": "Azores Cattle Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Basenji",
+    "nombre_en": "Basenji",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Sloughi",
+    "nombre_en": "Sloughi",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Azawakh",
+    "nombre_en": "Azawakh",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Ibizan Hound",
+    "nombre_en": "Ibizan Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Harrier",
+    "nombre_en": "Harrier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "American Foxhound",
+    "nombre_en": "American Foxhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "English Foxhound",
+    "nombre_en": "English Foxhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Otterhound",
+    "nombre_en": "Otterhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Plott Hound",
+    "nombre_en": "Plott Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Treeing Walker Coonhound",
+    "nombre_en": "Treeing Walker Coonhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Redbone Coonhound",
+    "nombre_en": "Redbone Coonhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Black and Tan Coonhound",
+    "nombre_en": "Black and Tan Coonhound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Schipperke",
+    "nombre_en": "Schipperke",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Keeshond",
+    "nombre_en": "Keeshond",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Spitz Finlandés",
+    "nombre_en": "Finnish Spitz",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Lapphund Finlandés",
+    "nombre_en": "Finnish Lapphund",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Lapphund Sueco",
+    "nombre_en": "Swedish Lapphund",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de Groenlandia",
+    "nombre_en": "Greenland Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Akita Americano",
+    "nombre_en": "American Akita",
+    "tipo": "perro",
+    "categoria": "fuerte_potencialmente_peligroso"
+  },
+  {
+    "nombre_es": "Kai Ken",
+    "nombre_en": "Kai Ken",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Kishu Ken",
+    "nombre_en": "Kishu Ken",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Hokkaido",
+    "nombre_en": "Hokkaido",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Shikoku",
+    "nombre_en": "Shikoku",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Jindo Coreano",
+    "nombre_en": "Korean Jindo",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pastor de Europa del Este",
+    "nombre_en": "East European Shepherd",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Laika de Siberia Occidental",
+    "nombre_en": "West Siberian Laika",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Laika de Siberia Oriental",
+    "nombre_en": "East Siberian Laika",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Eurasier",
+    "nombre_en": "Eurasier",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Canaan Dog",
+    "nombre_en": "Canaan Dog",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de caza de África del Sur",
+    "nombre_en": "South African Boerboel",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Perro de Caza del Faraón",
+    "nombre_en": "Pharaoh Hound",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Persa",
+    "nombre_en": "Persian",
+    "tipo": "gato",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Exótico de pelo corto",
+    "nombre_en": "Exotic Shorthair",
+    "tipo": "gato",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Himalayo",
+    "nombre_en": "Himalayan",
+    "tipo": "gato",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Burmés",
+    "nombre_en": "Burmese",
+    "tipo": "gato",
+    "categoria": "braquicéfalo"
+  },
+  {
+    "nombre_es": "Ragdoll",
+    "nombre_en": "Ragdoll",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Maine Coon",
+    "nombre_en": "Maine Coon",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Siamés",
+    "nombre_en": "Siamese",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bengalí",
+    "nombre_en": "Bengal",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Abisinio",
+    "nombre_en": "Abyssinian",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Sphynx / Esfinge",
+    "nombre_en": "Sphynx",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Scottish Fold",
+    "nombre_en": "Scottish Fold",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "British Shorthair",
+    "nombre_en": "British Shorthair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "British Longhair",
+    "nombre_en": "British Longhair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Noruego del Bosque",
+    "nombre_en": "Norwegian Forest Cat",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Siberiano",
+    "nombre_en": "Siberian",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Turco Van",
+    "nombre_en": "Turkish Van",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Turco Angora",
+    "nombre_en": "Turkish Angora",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Angora",
+    "nombre_en": "Angora",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Balinés",
+    "nombre_en": "Balinese",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Javanés",
+    "nombre_en": "Javanese",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Oriental de pelo corto",
+    "nombre_en": "Oriental Shorthair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Oriental de pelo largo",
+    "nombre_en": "Oriental Longhair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Tonkinés",
+    "nombre_en": "Tonkinese",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Birmano Sagrado / Sagrado de Birmania",
+    "nombre_en": "Birman",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Ragamuffin",
+    "nombre_en": "Ragamuffin",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Chartreux",
+    "nombre_en": "Chartreux",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Azul Ruso",
+    "nombre_en": "Russian Blue",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Korat",
+    "nombre_en": "Korat",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Singapura",
+    "nombre_en": "Singapura",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Ocicato",
+    "nombre_en": "Ocicat",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Snowshoe",
+    "nombre_en": "Snowshoe",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "American Shorthair",
+    "nombre_en": "American Shorthair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "American Wirehair",
+    "nombre_en": "American Wirehair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "American Curl",
+    "nombre_en": "American Curl",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "American Bobtail",
+    "nombre_en": "American Bobtail",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Munchkin",
+    "nombre_en": "Munchkin",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "LaPerm",
+    "nombre_en": "LaPerm",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Devon Rex",
+    "nombre_en": "Devon Rex",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cornish Rex",
+    "nombre_en": "Cornish Rex",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Selkirk Rex",
+    "nombre_en": "Selkirk Rex",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "German Rex",
+    "nombre_en": "German Rex",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Gato del Egeo",
+    "nombre_en": "Aegean",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Gato de Van",
+    "nombre_en": "Van Cat",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Savannah",
+    "nombre_en": "Savannah",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Chausie",
+    "nombre_en": "Chausie",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Serengeti",
+    "nombre_en": "Serengeti",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Pixie-bob",
+    "nombre_en": "Pixie-Bob",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Japonés Bobtail",
+    "nombre_en": "Japanese Bobtail",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Kurilian Bobtail",
+    "nombre_en": "Kurilian Bobtail",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Manx",
+    "nombre_en": "Manx",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Cymric",
+    "nombre_en": "Cymric",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Peterbald",
+    "nombre_en": "Peterbald",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Don Sphynx / Donskoy",
+    "nombre_en": "Donskoy (Don Sphynx)",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Lykoi / Gato Hombre Lobo",
+    "nombre_en": "Lykoi",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Toyger",
+    "nombre_en": "Toyger",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Bombay",
+    "nombre_en": "Bombay",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Habana",
+    "nombre_en": "Havana Brown",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Nebelung",
+    "nombre_en": "Nebelung",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Egyptian Mau",
+    "nombre_en": "Egyptian Mau",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Somali",
+    "nombre_en": "Somali",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Tiffanie",
+    "nombre_en": "Tiffanie",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Burmilla",
+    "nombre_en": "Burmilla",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Chinchilla (gato)",
+    "nombre_en": "Chinchilla Persian",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Gato de pelo largo doméstico",
+    "nombre_en": "Domestic Longhair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Gato de pelo corto doméstico",
+    "nombre_en": "Domestic Shorthair",
+    "tipo": "gato",
+    "categoria": "sin_advertencias"
+  }
+]

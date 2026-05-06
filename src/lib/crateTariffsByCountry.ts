@@ -1,3 +1,39 @@
+import razasData from "@/data/razas.json";
+
+type RazaEntry = { nombre_es: string; nombre_en: string; tipo: string; categoria: string };
+
+const DANGER_CATEGORIAS = new Set([
+  "fuerte_potencialmente_peligroso",
+  "braquicéfalo_y_fuerte",
+]);
+
+const BRACHY_CATEGORIAS = new Set([
+  "braquicéfalo",
+  "braquicéfalo_y_fuerte",
+]);
+
+/** Devuelve true si el nombre de raza (es o en) corresponde a una raza peligrosa/fuerte. */
+export function isDangerBreed(razaName: string): boolean {
+  if (!razaName.trim()) return false;
+  const q = razaName.trim().toLowerCase();
+  return (razasData as RazaEntry[]).some(
+    (r) =>
+      DANGER_CATEGORIAS.has(r.categoria) &&
+      (r.nombre_es.toLowerCase() === q || r.nombre_en.toLowerCase() === q),
+  );
+}
+
+/** Devuelve true si el nombre de raza (es o en) corresponde a una raza braquicefálica. */
+export function isBrachyBreed(razaName: string): boolean {
+  if (!razaName.trim()) return false;
+  const q = razaName.trim().toLowerCase();
+  return (razasData as RazaEntry[]).some(
+    (r) =>
+      BRACHY_CATEGORIAS.has(r.categoria) &&
+      (r.nombre_es.toLowerCase() === q || r.nombre_en.toLowerCase() === q),
+  );
+}
+
 export type CrateTariffOption = {
   id: string;
   size_code: string;
@@ -117,17 +153,52 @@ export function isCatCrateSize(sizeCode: string | null | undefined): boolean {
   return /^(100|200)\b/.test(String(sizeCode).trim());
 }
 
+/** Devuelve true si el size_code es "LAR 82". */
+export function isLar82CrateSize(sizeCode: string | null | undefined): boolean {
+  return String(sizeCode ?? "").trim().toUpperCase() === "LAR 82";
+}
+
 /**
- * Filtra opciones de jaula según el tipo de mascota.
+ * Opción LAR 82 genérica usada cuando aún no hay país seleccionado.
+ * Se reemplaza por la opción específica del país cuando el origen esté disponible.
+ */
+export const LAR82_FALLBACK: CrateTariffOption = {
+  id: "lar82",
+  size_code: "LAR 82",
+  pet_scope: "Dog",
+  measures_cm: null,
+  weight_vol_kg: null,
+  cost_amount: null,
+  cost_currency: "USD",
+  cost_label: "Precio a confirmar",
+  notes: null,
+};
+
+/**
+ * Filtra opciones de jaula según el tipo de mascota y si es raza peligrosa.
+ * - danger: solo LAR 82 (usa fallback genérico si no hay opción de país).
  * - "gato": solo tamaños 100 y 200.
  * - resto: sin filtrar.
  */
 export function filterCrateOptionsForPet(
   opts: CrateTariffOption[],
   tipo: "perro" | "gato" | "",
+  danger?: boolean,
 ): CrateTariffOption[] {
+  if (danger) {
+    const countryLar82 = opts.filter((o) => isLar82CrateSize(o.size_code));
+    return countryLar82.length > 0 ? countryLar82 : [LAR82_FALLBACK];
+  }
   if (tipo === "gato") return opts.filter((o) => isCatCrateSize(o.size_code));
   return opts;
+}
+
+/**
+ * Para una raza peligrosa, devuelve el id de la opción LAR 82 del país actual,
+ * o el id del fallback genérico si no hay opciones de país todavía.
+ */
+export function defaultCrateIdForDanger(opts: CrateTariffOption[]): string {
+  return opts.find((o) => isLar82CrateSize(o.size_code))?.id ?? LAR82_FALLBACK.id;
 }
 
 /**

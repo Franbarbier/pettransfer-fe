@@ -19,11 +19,15 @@ import {
   type CrateTariffsByCountryData,
   defaultCostoFromCrateSelection,
   defaultCrateIdForCat,
+  defaultCrateIdForDanger,
   filterCrateOptionsForPet,
   formatCrateOptionLabel,
   getCrateOptionsForOrigin,
+  isBrachyBreed,
+  isDangerBreed,
   resolveCrateCountryKey,
 } from "@/lib/crateTariffsByCountry";
+import { BreedCombobox } from "@/components/BreedCombobox";
 import { useExpoItems } from "@/hooks/useExpoItems";
 import {
   type LocationSuggestOption,
@@ -124,6 +128,7 @@ function formatIsoDateAsSpanishLong(iso: string): string {
 }
 
 type PetRow = {
+  id: string;
   tipo: "" | "perro" | "gato";
   raza: string;
   nombre: string;
@@ -190,6 +195,15 @@ type OutlookMailStatus = {
   email?: string;
   displayName?: string;
   error?: string;
+};
+
+type AppSessionInfo = {
+  email: string;
+  name: string;
+  provider: "microsoft";
+  issuedAt: number;
+  expiresAt: number;
+  microsoftScope?: string;
 };
 
 function quoteAnimalsDisplay(q: QuoteRow): string {
@@ -268,6 +282,7 @@ function stripFooterFromQuotes(quotes: QuoteRow[]): QuoteRow[] {
 
 function emptyPet(): PetRow {
   return {
+    id: crypto.randomUUID(),
     tipo: "",
     raza: "",
     nombre: "",
@@ -572,6 +587,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
   );
 
   const [customerName, setCustomerName] = useState("");
+  const [agentName, setAgentName] = useState("");
+  const [agentOpen, setAgentOpen] = useState(false);
   const [animalCount, setAnimalCount] = useState(1);
   const [pets, setPets] = useState<PetRow[]>([emptyPet()]);
   const [quotedDate, setQuotedDate] = useState(() => todayLocalIsoDate());
@@ -586,6 +603,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [selectedVendedorId, setSelectedVendedorId] = useState<string>("");
   const [vendedoresLoading, setVendedoresLoading] = useState(false);
   const [vendedoresError, setVendedoresError] = useState<string | null>(null);
+  const [currentAppSession, setCurrentAppSession] = useState<AppSessionInfo | null>(
+    null,
+  );
   const [vendedoresManagerOpen, setVendedoresManagerOpen] = useState(false);
   const [vendedorDraftName, setVendedorDraftName] = useState("");
   const [vendedorDraftEmail, setVendedorDraftEmail] = useState("");
@@ -712,44 +732,126 @@ export default function DemoCoti01Page(): React.JSX.Element {
   }, [loadOutlookStatus]);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          if (!cancelled) setCurrentAppSession(null);
+          return;
+        }
+        const body = (await res.json()) as {
+          authenticated?: boolean;
+          session?: AppSessionInfo;
+        };
+        if (!cancelled) {
+          setCurrentAppSession(body.authenticated ? (body.session ?? null) : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setCurrentAppSession(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       setVendedoresLoading(true);
       setVendedoresError(null);
       try {
-        const res = await fetch(`${apiBase}/salespeople`);
-        const body: unknown = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const err =
-            typeof body === "object" && body !== null && "error" in body
-              ? String((body as { error: unknown }).error)
-              : res.statusText;
-          setVendedoresError(err);
-          return;
-        }
-        if (
-          typeof body === "object" &&
-          body !== null &&
-          "salespeople" in body &&
-          Array.isArray((body as { salespeople: unknown }).salespeople)
-        ) {
-          const list = (
-            body as { salespeople: VendedorOption[] }
-          ).salespeople.map((v) => ({
-            id: v.id,
-            name: v.name,
-            email: v.email,
-          }));
-          setVendedores(list);
-          try {
-            const stored = localStorage.getItem(SELECTED_VENDEDOR_STORAGE_KEY);
-            const resolved =
-              stored && list.some((v) => v.id === stored)
-                ? stored
-                : list[0]?.id ?? "";
-            setSelectedVendedorId(resolved);
-          } catch {
-            setSelectedVendedorId(list[0]?.id ?? "");
+        const fetchSalespeople = async (): Promise<VendedorOption[]> => {
+          const res = await fetch(`${apiBase}/salespeople`);
+          const body: unknown = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const err =
+              typeof body === "object" && body !== null && "error" in body
+                ? String((body as { error: unknown }).error)
+                : res.statusText;
+            throw new Error(err);
           }
+          if (
+            typeof body === "object" &&
+            body !== null &&
+            "salespeople" in body &&
+            Array.isArray((body as { salespeople: unknown }).salespeople)
+          ) {
+            return (body as { salespeople: VendedorOption[] }).salespeople.map((v) => ({
+              id: v.id,
+              name: v.name,
+              email: v.email,
+            }));
+          }
+          return [];
+        };
+
+        let list = await fetchSalespeople();
+        let loggedSalespersonId = "";
+
+        if (currentAppSession?.email) {
+          const normalizedEmail = currentAppSession.email.trim().toLowerCase();
+          let match = list.find(
+            (v) => v.email.trim().toLowerCase() === normalizedEmail,
+          );
+
+          if (!match) {
+            const createRes = await fetch(`${apiBase}/salespeople`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                name: currentAppSession.name.trim() || normalizedEmail,
+                email: normalizedEmail,
+              }),
+            });
+
+            if (createRes.ok) {
+              const createdBody = (await createRes.json().catch(() => ({}))) as {
+                salesperson?: VendedorOption;
+              };
+              if (createdBody.salesperson) {
+                match = createdBody.salesperson;
+                list = [...list, createdBody.salesperson].sort((a, b) =>
+                  a.name.localeCompare(b.name),
+                );
+              }
+            } else if (createRes.status === 409) {
+              list = await fetchSalespeople();
+              match = list.find(
+                (v) => v.email.trim().toLowerCase() === normalizedEmail,
+              );
+            } else {
+              const createBody: unknown = await createRes.json().catch(() => ({}));
+              const err =
+                typeof createBody === "object" &&
+                createBody !== null &&
+                "error" in createBody
+                  ? JSON.stringify((createBody as { error: unknown }).error)
+                  : createRes.statusText;
+              throw new Error(
+                err || "No se pudo crear el vendedor para el usuario actual.",
+              );
+            }
+          }
+
+          if (match) {
+            loggedSalespersonId = match.id;
+          }
+        }
+
+        setVendedores(list);
+        try {
+          const stored = localStorage.getItem(SELECTED_VENDEDOR_STORAGE_KEY);
+          const resolved =
+            loggedSalespersonId ||
+            (stored && list.some((v) => v.id === stored) ? stored : "") ||
+            list[0]?.id ||
+            "";
+          setSelectedVendedorId(resolved);
+        } catch {
+          setSelectedVendedorId(loggedSalespersonId || list[0]?.id || "");
         }
       } catch (e: unknown) {
         setVendedoresError(e instanceof Error ? e.message : String(e));
@@ -757,7 +859,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
         setVendedoresLoading(false);
       }
     })();
-  }, []);
+  }, [currentAppSession]);
 
   useEffect(() => {
     if (!selectedVendedorId) return;
@@ -1413,6 +1515,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
   useEffect(() => {
     setPets((prev) =>
       prev.map((p) => {
+        const danger = isDangerBreed(p.raza);
+        if (danger) {
+          const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
+          const costo = defaultCostoFromCrateSelection(crateTariffsData, origin, lar82Id);
+          if (p.hasCrate && p.crateId === lar82Id && p.costo === costo) return p;
+          return { ...p, hasCrate: true, crateId: lar82Id, costo };
+        }
         if (!p.hasCrate) return p;
         const allowed = filterCrateOptionsForPet(crateOptionsForOrigin, p.tipo);
         const validIds = new Set(allowed.map((c) => c.id));
@@ -1426,11 +1535,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           const def = defaultCrateIdForCat(crateOptionsForOrigin);
           if (def) {
             crateId = def;
-            costo = defaultCostoFromCrateSelection(
-              crateTariffsData,
-              origin,
-              def,
-            );
+            costo = defaultCostoFromCrateSelection(crateTariffsData, origin, def);
           }
         }
         if (crateId === p.crateId && costo === p.costo) return p;
@@ -1438,6 +1543,23 @@ export default function DemoCoti01Page(): React.JSX.Element {
       }),
     );
   }, [crateOptionsForOrigin, crateTariffsData, origin]);
+
+  // Cuando la raza cambia a peligrosa y los efectos de origen/tarifas ya corrieron,
+  // asigna LAR 82 de inmediato sin esperar cambio de crateOptionsForOrigin.
+  useEffect(() => {
+    const needsFill = pets.some(
+      (p) => isDangerBreed(p.raza) && (!p.hasCrate || p.crateId !== defaultCrateIdForDanger(crateOptionsForOrigin)),
+    );
+    if (!needsFill) return;
+    const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
+    setPets((prev) =>
+      prev.map((p) => {
+        if (!isDangerBreed(p.raza) || (p.hasCrate && p.crateId === lar82Id)) return p;
+        const costo = defaultCostoFromCrateSelection(crateTariffsData, origin, lar82Id);
+        return { ...p, hasCrate: true, crateId: lar82Id, costo };
+      }),
+    );
+  }, [pets, crateOptionsForOrigin, crateTariffsData, origin]);
 
   useEffect(() => {
     void (async () => {
@@ -1646,10 +1768,27 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setPets((prev) => {
       const next = [...prev];
       const merged = { ...next[index], ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, "raza")) {
+        const danger = isDangerBreed(merged.raza);
+        if (danger) {
+          merged.hasCrate = true;
+          const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
+          if (lar82Id) {
+            merged.crateId = lar82Id;
+            merged.costo = defaultCostoFromCrateSelection(
+              crateTariffsData,
+              origin,
+              lar82Id,
+            );
+          }
+        }
+      }
       if (Object.prototype.hasOwnProperty.call(patch, "tipo")) {
+        const danger = isDangerBreed(merged.raza);
         const allowed = filterCrateOptionsForPet(
           crateOptionsForOrigin,
           merged.tipo,
+          danger,
         );
         const validIds = new Set(allowed.map((c) => c.id));
         if (merged.crateId && !validIds.has(merged.crateId)) {
@@ -1680,15 +1819,17 @@ export default function DemoCoti01Page(): React.JSX.Element {
       if (!p || p.hasCrate) return prev;
       let crateId = p.crateId;
       let costo = p.costo;
-      if (p.tipo === "gato" && !crateId) {
+      if (isDangerBreed(p.raza) && !crateId) {
+        const def = defaultCrateIdForDanger(crateOptionsForOrigin);
+        if (def) {
+          crateId = def;
+          costo = defaultCostoFromCrateSelection(crateTariffsData, origin, def);
+        }
+      } else if (p.tipo === "gato" && !crateId) {
         const def = defaultCrateIdForCat(crateOptionsForOrigin);
         if (def) {
           crateId = def;
-          costo = defaultCostoFromCrateSelection(
-            crateTariffsData,
-            origin,
-            def,
-          );
+          costo = defaultCostoFromCrateSelection(crateTariffsData, origin, def);
         }
       }
       next[index] = { ...p, hasCrate: true, crateId, costo };
@@ -1715,6 +1856,26 @@ export default function DemoCoti01Page(): React.JSX.Element {
         : crateOptionsForOrigin.length === 0
           ? "Sin tarifas de jaula para este origen"
           : "Jaula / tamaño";
+
+  function handleSendPdfClick(): void {
+    const missing: string[] = [];
+    if (!customerName.trim()) missing.push("Cliente");
+    if (!origin.trim()) missing.push("Origen");
+    if (!destination.trim()) missing.push("Destino");
+    if (!quotedDate.trim()) missing.push("Fecha de cotización");
+    const activePets = pets.slice(0, animalCount);
+    if (activePets.some((p) => !p.tipo)) missing.push("Tipo de mascota sin completar");
+    if (latamRows.length === 0) missing.push("Sin ítems cotizados");
+
+    if (missing.length > 0) {
+      const list = missing.map((f) => `• ${f}`).join("\n");
+      const ok = window.confirm(
+        `Faltan los siguientes campos:\n\n${list}\n\n¿Querés continuar de todas formas?`,
+      );
+      if (!ok) return;
+    }
+    openEmailDrawer();
+  }
 
   function openEmailDrawer(): void {
     const selectedVendedor = vendedores.find((v) => v.id === selectedVendedorId);
@@ -2034,7 +2195,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
         </div>
         <button
           type="button"
-          onClick={openEmailDrawer}
+          onClick={handleSendPdfClick}
           className="rounded-full border border-zinc-600 bg-zinc-700 px-3 py-2 text-xs font-medium text-white shadow-md transition hover:bg-zinc-800"
           aria-label="Enviar cotización por email"
           title="Enviar cotización por email"
@@ -2312,15 +2473,46 @@ export default function DemoCoti01Page(): React.JSX.Element {
               <label htmlFor="dc02-customer" className={labelClass}>
                 Nombre del cliente
               </label>
-              <input
-                id="dc02-customer"
-                type="text"
-                autoComplete="name"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className={inputClass}
-                placeholder="Cliente"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  id="dc02-customer"
+                  type="text"
+                  autoComplete="name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className={`${inputClass} flex-1`}
+                  placeholder="Cliente"
+                />
+                {agentOpen ? (
+                  <>
+                    <input
+                      id="dc02-agent"
+                      type="text"
+                      autoComplete="organization"
+                      value={agentName}
+                      onChange={(e) => setAgentName(e.target.value)}
+                      className={`${inputClass} w-[30%] shrink-0`}
+                      placeholder="Agent"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setAgentOpen(false); setAgentName(""); }}
+                      className="shrink-0 text-xs text-zinc-400 hover:text-zinc-600"
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAgentOpen(true)}
+                    className="shrink-0 text-xs text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
+                  >
+                    + agregar agent
+                  </button>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div ref={originWrapRef} className="relative min-w-0">
@@ -2540,7 +2732,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
               </div>
               {pets.map((pet, i) => (
                 <div
-                  key={i}
+                  key={pet.id}
                   className="rounded-lg border border-zinc-300 p-3"
                 >
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -2576,12 +2768,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       >
                         Raza
                       </label>
-                      <input
+                      <BreedCombobox
                         id={`dc02-pet-${i}-raza`}
-                        type="text"
-                        autoComplete="off"
+                        tipo={pet.tipo}
                         value={pet.raza}
-                        onChange={(e) => updatePet(i, { raza: e.target.value })}
+                        onChange={(v) => updatePet(i, { raza: v })}
                         className={inputClass}
                         placeholder="Raza"
                       />
@@ -2597,10 +2788,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         id={`dc02-pet-${i}-nombre`}
                         type="text"
                         autoComplete="off"
-                        value={pet.nombre}
-                        onChange={(e) =>
-                          updatePet(i, { nombre: e.target.value })
-                        }
+                        defaultValue={pet.nombre}
+                        onBlur={(e) => updatePet(i, { nombre: e.target.value })}
                         className={inputClass}
                         placeholder="Nombre"
                       />
@@ -2642,9 +2831,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             </button>
                           </div>
                           {(() => {
+                            const danger = isDangerBreed(pet.raza);
                             const optsForPet = filterCrateOptionsForPet(
                               crateOptionsForOrigin,
                               pet.tipo,
+                              danger,
                             );
                             return (
                               <select
@@ -2722,6 +2913,16 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       </div>
                     )}
                   </div>
+                  {isBrachyBreed(pet.raza) && (
+                    <p className="mt-2 flex items-center gap-1.5 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0" aria-hidden>
+                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                      Atención: esta mascota es braquicefálica
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -3805,19 +4006,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
             >
               <div className="min-w-0 flex flex-col gap-px">
                 <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Customer
+                  {agentName.trim() ? "Customer - Agent" : "Customer"}
                 </span>
                 <div className="flex min-w-0 items-center gap-1.5">
                   <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className={pdfFieldTextClass}
-                    placeholder="—"
-                    autoComplete="off"
-                    aria-label="Customer"
-                  />
+                  <span className={`${pdfFieldTextClass} pointer-events-none select-text`}>
+                    {customerName.trim() || agentName.trim()
+                      ? [customerName.trim(), agentName.trim()].filter(Boolean).join(" - ") || "—"
+                      : "—"}
+                  </span>
                 </div>
               </div>
               <div className="min-w-0 flex flex-col gap-px">
@@ -4128,7 +4325,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => {
-                  window.location.href = "/api/microsoft/oauth/start?returnTo=/demo-coti";
+                  window.location.href = "/api/auth/microsoft/start?returnTo=/demo-coti";
                 }}
                 className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-900"
               >
@@ -4201,7 +4398,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   <button
                     type="button"
                     onClick={() => {
-                      window.location.href = "/api/microsoft/oauth/start?returnTo=/demo-coti";
+                      window.location.href = "/api/auth/microsoft/start?returnTo=/demo-coti";
                     }}
                     disabled={outlookStatusLoading || emailSending || !outlookStatus?.configured}
                     className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-zinc-900 disabled:opacity-50"
