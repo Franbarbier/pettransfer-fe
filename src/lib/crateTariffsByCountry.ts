@@ -61,6 +61,8 @@ const COUNTRY_MATCH_ORDER: { key: string; labels: string[] }[] = [
   { key: "colombia", labels: ["colombia", "bogotá", "bogota", "bog"] },
   { key: "ecuador", labels: ["ecuador", "quito", "gye"] },
   { key: "mexico", labels: ["mexico", "méxico", "cdmx", "ciudad de mexico"] },
+  { key: "uruguay", labels: ["uruguay", "montevideo", "mvd"] },
+  { key: "peru", labels: ["peru", "perú", "lima", "lim"] },
 ];
 
 function normalizeLoose(s: string): string {
@@ -97,13 +99,23 @@ export function resolveCrateCountryKey(originRaw: string): string | null {
   return null;
 }
 
+export const GENERIC_CRATE_OPTIONS: CrateTariffOption[] = [
+  { id: "generic-100", size_code: "100", pet_scope: "Dog/Cat", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+  { id: "generic-200", size_code: "200", pet_scope: "Dog/Cat", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+  { id: "generic-300", size_code: "300", pet_scope: "Dog", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+  { id: "generic-400", size_code: "400", pet_scope: "Dog", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+  { id: "generic-500", size_code: "500", pet_scope: "Dog", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+  { id: "generic-700", size_code: "700", pet_scope: "Dog", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+  { id: "generic-lar82", size_code: "CR82 / LAR82", pet_scope: "Dog", measures_cm: null, weight_vol_kg: null, cost_amount: null, cost_currency: "USD", cost_label: null, notes: null },
+];
+
 export function getCrateOptionsForOrigin(
   data: CrateTariffsByCountryData | null,
   originRaw: string,
 ): CrateTariffOption[] {
   if (!data?.countries) return [];
   const key = resolveCrateCountryKey(originRaw);
-  if (!key) return [];
+  if (!key) return originRaw.trim() ? GENERIC_CRATE_OPTIONS : [];
   const list = data.countries[key];
   return Array.isArray(list) ? list : [];
 }
@@ -153,9 +165,10 @@ export function isCatCrateSize(sizeCode: string | null | undefined): boolean {
   return /^(100|200)\b/.test(String(sizeCode).trim());
 }
 
-/** Devuelve true si el size_code es "LAR 82". */
+/** Devuelve true si el size_code es "LAR 82" o "CR82 / LAR82". */
 export function isLar82CrateSize(sizeCode: string | null | undefined): boolean {
-  return String(sizeCode ?? "").trim().toUpperCase() === "LAR 82";
+  const s = String(sizeCode ?? "").trim().toUpperCase();
+  return s === "LAR 82" || s === "CR82 / LAR82";
 }
 
 /**

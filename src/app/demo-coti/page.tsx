@@ -34,6 +34,11 @@ import {
   parseLocationSuggestList,
 } from "@/lib/quoteLocationSuggestions";
 import { getApiBaseUrl } from "@/services/api";
+import {
+  type FolderMatch,
+  searchYaCotizados,
+  APP_TESTING_PATH,
+} from "@/lib/dropboxSearch";
 
 const apiBase = getApiBaseUrl().replace(/\/$/, "");
 
@@ -345,7 +350,7 @@ function impoCustomerTextForQuotedItem(
 
 type LatamFieldRow = {
   id: string;
-  source: "json" | "custom" | "impo" | "similar";
+  source: "json" | "custom" | "impo" | "similar" | "transito";
   /** Clave JSON (`vet_fees`) o id único para filas custom. */
   fieldKey: string;
   title: string;
@@ -371,6 +376,8 @@ function latamRowThemeClasses(source: LatamFieldRow["source"]): string {
       return "border-sky-200 bg-sky-50/70 ring-sky-100/80";
     case "json":
       return "border-violet-200 bg-violet-50/70 ring-violet-100/80";
+    case "transito":
+      return "border-emerald-200 bg-emerald-50/70 ring-emerald-100/80";
     case "similar":
     case "custom":
     default:
@@ -555,13 +562,16 @@ function AutoHeightDescriptionTextarea({
   );
 }
 
-type TradeDirectionChoice = "impo" | "expo" | "ambas";
+type TradeDirectionChoice = "impo" | "expo" | "ambas" | "transito";
 
 export default function DemoCoti01Page(): React.JSX.Element {
-  const [origin, setOrigin] = useState("");
-  const [destination, setDestination] = useState("");
+  const [origin, setOrigin] = useState("Australia");
+  const [destination, setDestination] = useState("Colombia");
   const [tradeDirection, setTradeDirection] =
-    useState<TradeDirectionChoice>("ambas");
+    useState<TradeDirectionChoice>("impo");
+  const [transitCountry, setTransitCountry] = useState<"argentina" | "chile">(
+    "argentina",
+  );
   const [originOpen, setOriginOpen] = useState(false);
   const [destOpen, setDestOpen] = useState(false);
   const [originSuggestions, setOriginSuggestions] = useState<
@@ -586,7 +596,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     null,
   );
 
-  const [customerName, setCustomerName] = useState("");
+  const [customerName, setCustomerName] = useState("Ryan Reid");
   const [agentName, setAgentName] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [animalCount, setAnimalCount] = useState(1);
@@ -640,6 +650,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [emailSending, setEmailSending] = useState(false);
   const [emailResult, setEmailResult] = useState<"ok" | "error" | null>(null);
   const [emailError, setEmailError] = useState("");
+  const [dbxUploadStatus, setDbxUploadStatus] = useState<"idle" | "uploading" | "done" | "error" | "not-found">("idle");
+  const [dbxUploadError, setDbxUploadError] = useState<string | null>(null);
+  const [dbxMatchedFolderName, setDbxMatchedFolderName] = useState<string | null>(null);
+  const [dbxFolderLink, setDbxFolderLink] = useState<string | null>(null);
+  const [dbxUploadModalOpen, setDbxUploadModalOpen] = useState(false);
+
   const [outlookConnectModalOpen, setOutlookConnectModalOpen] = useState(false);
   const [outlookStatus, setOutlookStatus] = useState<OutlookMailStatus | null>(
     null,
@@ -1261,7 +1277,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
         return prev;
       }
       return [
-        ...prev,
         {
           id: newLatamRowId(),
           source: "json",
@@ -1271,6 +1286,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           description: "",
           internalNote: latamPreEntregaHint.note,
         },
+        ...prev,
       ];
     });
   }
@@ -1335,6 +1351,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
    */
   const autoAddedImpoSigRef = useRef<string | null>(null);
   const autoAddedExpoSigRef = useRef<string | null>(null);
+  const autoAddedTransitoSigRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (impoTemplatesLoading) return;
@@ -1368,6 +1385,48 @@ export default function DemoCoti01Page(): React.JSX.Element {
     addAllLatamJsonGuideItems();
   }, [addAllLatamJsonGuideItems, latamProfitFields, tradeDirection]);
 
+  useEffect(() => {
+    if (tradeDirection !== "transito") {
+      autoAddedTransitoSigRef.current = null;
+      return;
+    }
+    const transitLabel = transitCountry === "argentina" ? "Argentina" : "Chile";
+    const sig = `${transitCountry}|${destination}`;
+    if (autoAddedTransitoSigRef.current === sig) return;
+    autoAddedTransitoSigRef.current = sig;
+    setLatamRows((prev) => prev.filter((r) => r.source !== "transito"));
+    const rows: LatamFieldRow[] = [
+      {
+        id: newLatamRowId(),
+        source: "transito",
+        fieldKey: "transito_reception",
+        title: "Reception and assistance during connection flights",
+        price: "USD 350",
+        description: "",
+        internalNote: "",
+      },
+      {
+        id: newLatamRowId(),
+        source: "transito",
+        fieldKey: `transito_cargo_${transitCountry}`,
+        title: `Cargo freight ${transitLabel} - ${destination}`,
+        price: "",
+        description: "",
+        internalNote: "proveedor + USD 1.000",
+      },
+      {
+        id: newLatamRowId(),
+        source: "transito",
+        fieldKey: "transito_latam_fees",
+        title: "LATAM Pet Transport fees",
+        price: "USD 350",
+        description: "",
+        internalNote: "",
+      },
+    ];
+    setLatamRows((prev) => [...prev, ...rows]);
+  }, [tradeDirection, transitCountry, destination]);
+
   /**
    * Si el usuario cambia la dirección y deja de incluir IMPO/EXPO, quitamos
    * del presupuesto las filas auto-agregadas desde esa fuente para que no
@@ -1379,6 +1438,14 @@ export default function DemoCoti01Page(): React.JSX.Element {
     }
     if (tradeDirection === "impo") {
       setLatamRows((prev) => prev.filter((r) => r.source !== "json"));
+    }
+    if (tradeDirection === "transito") {
+      setLatamRows((prev) =>
+        prev.filter((r) => r.source !== "impo" && r.source !== "json"),
+      );
+    }
+    if (tradeDirection !== "transito") {
+      setLatamRows((prev) => prev.filter((r) => r.source !== "transito"));
     }
   }, [tradeDirection]);
 
@@ -1857,6 +1924,102 @@ export default function DemoCoti01Page(): React.JSX.Element {
           ? "Sin tarifas de jaula para este origen"
           : "Jaula / tamaño";
 
+  function buildDropboxFilename(): string {
+    const activePets = pets.slice(0, Math.min(animalCount, pets.length));
+    const crateSizes = activePets
+      .filter((p) => p.hasCrate && p.crateId)
+      .map((p) => crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? "")
+      .filter(Boolean);
+    const cratesStr = crateSizes.map((s) => `#${s}`).join("");
+
+    // "Colombia (BOG)" → "BOG Colombia" | "Australia" → "Australia"
+    const locationLabel = (loc: string): string => {
+      const iata = extractIataCode(loc);
+      const beforeParen = loc.split("(")[0].trim();
+      let countryName: string;
+      if (beforeParen && !/^[A-Z]{3}$/.test(beforeParen)) {
+        countryName = beforeParen;
+      } else {
+        const inParen = loc.match(/\(([^)]+)\)/)?.[1] ?? "";
+        const parts = inParen.split(",").map((s) => s.trim()).filter(Boolean);
+        countryName = parts[parts.length - 1] || loc.trim();
+      }
+      return iata && iata !== countryName ? `${iata} ${countryName}` : countryName;
+    };
+
+    const origen = locationLabel(origin);
+    const destino = locationLabel(destination);
+    const cliente = customerName.trim();
+    const agente = agentName.trim();
+    const suffix = [cratesStr, cliente, agente].filter(Boolean).join(" ");
+
+    let name: string;
+    switch (tradeDirection) {
+      case "expo":
+        name = `EXPO ${destino} dde ${origen} ${suffix}`;
+        break;
+      case "impo":
+        name = `IMPO ${origen} en ${destino} ${suffix}`;
+        break;
+      case "ambas":
+        name = `IMPO ${origen} en ${destino} EXPO ${destino} dde ${origen} ${suffix}`;
+        break;
+      case "transito":
+        name = `TRANSITO ${origen} ${destino} ${suffix}`;
+        break;
+      default:
+        name = `cotizacion ${suffix}`;
+    }
+
+    return `cot ${name.trim()}.pdf`;
+  }
+
+  async function uploadAndTagYaCotizados(
+    pdfBase64: string,
+    match: FolderMatch,
+  ): Promise<{ uploadedFilePath: string; originalFolderPath: string; renamedFolderPath: string }> {
+    const filename = buildDropboxFilename();
+
+    const folderPath = match.pathDisplay;
+    if (!folderPath) throw new Error("Sin ruta de carpeta en Dropbox.");
+
+    const uploadRes = await fetch("/api/dropbox/test-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pdfBase64, filename, folderPath }),
+    });
+    const uploadData = (await uploadRes.json()) as {
+      ok: boolean;
+      upload?: { pathDisplay: string | null };
+      error?: string;
+    };
+    if (!uploadRes.ok || !uploadData.ok) throw new Error(uploadData.error ?? `Error de upload ${uploadRes.status}`);
+
+    const lastSlash = folderPath.lastIndexOf("/");
+    const parent = folderPath.substring(0, lastSlash);
+    const folderName = folderPath.substring(lastSlash + 1);
+    const alreadyTagged = folderName.startsWith("cotizado por app ");
+    const newPath = alreadyTagged ? folderPath : `${parent}/cotizado por app ${folderName}`;
+
+    const uploadedFilePath = `${newPath}/${filename}`;
+
+    if (!alreadyTagged) {
+      const moveRes = await fetch("/api/dropbox/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "move", fromPath: folderPath, toPath: newPath }),
+      });
+      const moveData = (await moveRes.json()) as { ok: boolean; error?: string };
+      const isConflict = moveData.error?.includes("conflict");
+      if (!moveRes.ok || !moveData.ok) {
+        if (!isConflict) throw new Error(moveData.error ?? `Error al renombrar ${moveRes.status}`);
+        // Conflicto = la carpeta destino ya existe → ya está taggeada, continuar
+      }
+    }
+
+    return { uploadedFilePath, originalFolderPath: folderPath, renamedFolderPath: newPath };
+  }
+
   function handleSendPdfClick(): void {
     const missing: string[] = [];
     if (!customerName.trim()) missing.push("Cliente");
@@ -1901,161 +2064,172 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setEmailBody(body);
     setEmailResult(null);
     setEmailError("");
+    setDbxUploadStatus("idle");
+    setDbxUploadError(null);
+    setDbxUploadModalOpen(false);
     setEmailDrawerOpen(true);
   }
 
-  async function handleSendEmail(): Promise<void> {
+  async function generatePdfBase64(): Promise<string> {
     const pane = document.getElementById("dc02-pdf-content") ?? document.getElementById("dc02-right-pane");
-    if (!pane) return;
+    if (!pane) throw new Error("No se encontró el panel de PDF.");
+
+    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ]);
+    const A4_WIDTH_PX = 794;
+
+    // Dimensiones del PDF — se calculan antes de capturar para usarlas en onclone
+    const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfPageH = pdf.internal.pageSize.getHeight();
+    const pageMarginPx = 20;
+    const usableH = pdfPageH - pageMarginPx * 2;
+
+    // ── Paso 1: transformar el DOM real para medir altura con CSS completo ──
+    // Reemplazamos los textareas con divs (display:none en el original)
+    // para que el scrollHeight real refleje el contenido sin rows forzados.
+    type TaReplacement = { ta: HTMLTextAreaElement; div: HTMLDivElement };
+    const taReplacements: TaReplacement[] = [];
+    pane.querySelectorAll<HTMLTextAreaElement>("textarea").forEach((ta) => {
+      const div = document.createElement("div");
+      div.textContent = ta.value;
+      div.className = ta.className;
+      div.style.whiteSpace = "pre-wrap";
+      div.style.height = "auto";
+      div.style.overflow = "visible";
+      ta.parentNode!.insertBefore(div, ta);
+      ta.style.display = "none";
+      taReplacements.push({ ta, div });
+    });
+
+    // Medición en el DOM real (con todo el CSS de Tailwind aplicado)
+    const measuredH = pane.scrollHeight;
+    const cloneContentH = Math.max(measuredH, Math.ceil(usableH));
+    const captureH = cloneContentH;
+
+    // ── Paso 2: capturar con html2canvas ──
+    const canvas = await html2canvas(pane, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      width: A4_WIDTH_PX,
+      height: captureH,
+      windowWidth: A4_WIDTH_PX,
+      windowHeight: captureH,
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (cloneDoc, cloneEl) => {
+        // Limpiar constraints de todos los padres
+        let parent = cloneEl.parentElement;
+        while (parent && parent !== cloneDoc.body) {
+          parent.style.cssText = "width:auto;max-width:none;padding:0;margin:0;overflow:visible;border:none;box-shadow:none;border-radius:0;";
+          parent = parent.parentElement;
+        }
+        cloneEl.style.width = `${A4_WIDTH_PX}px`;
+        cloneEl.style.minWidth = `${A4_WIDTH_PX}px`;
+        cloneEl.style.height = "auto";
+        cloneEl.style.overflow = "visible";
+
+        // Forzar alineación vertical en flex containers del header de info
+        cloneEl.querySelectorAll<HTMLElement>(".items-center").forEach((el) => {
+          el.style.display = "flex";
+          el.style.alignItems = "center";
+        });
+
+        // SVGs: block + tamaño explícito
+        cloneEl.querySelectorAll<SVGElement>("svg").forEach((svg) => {
+          svg.style.display = "block";
+          svg.style.width = "14px";
+          svg.style.height = "14px";
+          svg.style.flexShrink = "0";
+          svg.style.transform = "translateY(2px)";
+        });
+
+        // Liberar overflow-hidden en wrappers de campos fecha
+        cloneEl.querySelectorAll<HTMLElement>('[class*="overflow-hidden"]').forEach((el) => {
+          el.style.overflow = "visible";
+          el.style.height = "auto";
+        });
+
+        // Reemplazar inputs con spans
+        cloneEl.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+          if (input.type === "date") {
+            input.style.opacity = "0";
+            input.style.position = "absolute";
+            return;
+          }
+          const span = cloneDoc.createElement("span");
+          span.textContent = input.value || "";
+          span.className = input.className;
+          input.parentNode?.replaceChild(span, input);
+        });
+
+        // Ocultar botones interactivos
+        cloneEl.querySelectorAll<HTMLElement>("button").forEach((btn) => {
+          btn.style.display = "none";
+        });
+
+        // Los textareas ya están ocultos (display:none) en el DOM real;
+        // sus divs reemplazantes también están clonados → no hace falta nada más.
+      },
+    });
+
+    // ── Paso 3: restaurar el DOM real ──
+    taReplacements.forEach(({ ta, div }) => {
+      ta.style.display = "";
+      div.parentNode?.removeChild(div);
+    });
+
+    // Usar cloneContentH (altura real post-transformaciones) para calcular páginas
+    const pixelsPerPoint = canvas.width / pdfW;
+    const contentPdfH = cloneContentH * (pdfW / A4_WIDTH_PX);
+    const rawPageCount = Math.max(1, Math.ceil(contentPdfH / usableH));
+    const lastPageContent = contentPdfH - (rawPageCount - 1) * usableH;
+    const pageCount = rawPageCount > 1 && lastPageContent < 30 ? rawPageCount - 1 : rawPageCount;
+
+    // effectiveCanvasH: píxeles del canvas que corresponden al contenido real
+    const effectiveCanvasH = Math.round(cloneContentH * pixelsPerPoint);
+
+    for (let i = 0; i < pageCount; i++) {
+      if (i > 0) pdf.addPage();
+      const srcY = Math.floor(i * usableH * pixelsPerPoint);
+      const srcH = Math.min(
+        Math.ceil(usableH * pixelsPerPoint),
+        effectiveCanvasH - srcY,
+      );
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = Math.ceil(usableH * pixelsPerPoint);
+      const ctx = pageCanvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+        ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+      }
+      pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, pageMarginPx, pdfW, usableH);
+    }
+
+    return pdf.output("datauristring").split(",")[1];
+  }
+
+  async function handleSendEmail(): Promise<void> {
     setEmailSending(true);
     setEmailResult(null);
     setEmailError("");
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-      const A4_WIDTH_PX = 794;
-
-      // Dimensiones del PDF — se calculan antes de capturar para usarlas en onclone
-      const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
-      const pdfW = pdf.internal.pageSize.getWidth();
-      const pdfPageH = pdf.internal.pageSize.getHeight();
-      const pageMarginPx = 20;
-      const usableH = pdfPageH - pageMarginPx * 2;
-
-      // ── Paso 1: transformar el DOM real para medir altura con CSS completo ──
-      // Reemplazamos los textareas con divs (display:none en el original)
-      // para que el scrollHeight real refleje el contenido sin rows forzados.
-      type TaReplacement = { ta: HTMLTextAreaElement; div: HTMLDivElement };
-      const taReplacements: TaReplacement[] = [];
-      pane.querySelectorAll<HTMLTextAreaElement>("textarea").forEach((ta) => {
-        const div = document.createElement("div");
-        div.textContent = ta.value;
-        div.className = ta.className;
-        div.style.whiteSpace = "pre-wrap";
-        div.style.height = "auto";
-        div.style.overflow = "visible";
-        ta.parentNode!.insertBefore(div, ta);
-        ta.style.display = "none";
-        taReplacements.push({ ta, div });
-      });
-
-      // Medición en el DOM real (con todo el CSS de Tailwind aplicado)
-      const measuredH = pane.scrollHeight;
-      const cloneContentH = Math.max(measuredH, Math.ceil(usableH));
-      const captureH = cloneContentH;
-
-      // ── Paso 2: capturar con html2canvas ──
-      const canvas = await html2canvas(pane, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#ffffff",
-        width: A4_WIDTH_PX,
-        height: captureH,
-        windowWidth: A4_WIDTH_PX,
-        windowHeight: captureH,
-        scrollX: 0,
-        scrollY: 0,
-        onclone: (cloneDoc, cloneEl) => {
-          // Limpiar constraints de todos los padres
-          let parent = cloneEl.parentElement;
-          while (parent && parent !== cloneDoc.body) {
-            parent.style.cssText = "width:auto;max-width:none;padding:0;margin:0;overflow:visible;border:none;box-shadow:none;border-radius:0;";
-            parent = parent.parentElement;
-          }
-          cloneEl.style.width = `${A4_WIDTH_PX}px`;
-          cloneEl.style.minWidth = `${A4_WIDTH_PX}px`;
-          cloneEl.style.height = "auto";
-          cloneEl.style.overflow = "visible";
-
-          // Forzar alineación vertical en flex containers del header de info
-          cloneEl.querySelectorAll<HTMLElement>(".items-center").forEach((el) => {
-            el.style.display = "flex";
-            el.style.alignItems = "center";
-          });
-
-          // SVGs: block + tamaño explícito
-          cloneEl.querySelectorAll<SVGElement>("svg").forEach((svg) => {
-            svg.style.display = "block";
-            svg.style.width = "14px";
-            svg.style.height = "14px";
-            svg.style.flexShrink = "0";
-            svg.style.transform = "translateY(2px)";
-          });
-
-          // Liberar overflow-hidden en wrappers de campos fecha
-          cloneEl.querySelectorAll<HTMLElement>('[class*="overflow-hidden"]').forEach((el) => {
-            el.style.overflow = "visible";
-            el.style.height = "auto";
-          });
-
-          // Reemplazar inputs con spans
-          cloneEl.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
-            if (input.type === "date") {
-              input.style.opacity = "0";
-              input.style.position = "absolute";
-              return;
-            }
-            const span = cloneDoc.createElement("span");
-            span.textContent = input.value || "";
-            span.className = input.className;
-            input.parentNode?.replaceChild(span, input);
-          });
-
-          // Ocultar botones interactivos
-          cloneEl.querySelectorAll<HTMLElement>("button").forEach((btn) => {
-            btn.style.display = "none";
-          });
-
-          // Los textareas ya están ocultos (display:none) en el DOM real;
-          // sus divs reemplazantes también están clonados → no hace falta nada más.
-        },
-      });
-
-      // ── Paso 3: restaurar el DOM real ──
-      taReplacements.forEach(({ ta, div }) => {
-        ta.style.display = "";
-        div.parentNode?.removeChild(div);
-      });
-
-      // Usar cloneContentH (altura real post-transformaciones) para calcular páginas
-      const pixelsPerPoint = canvas.width / pdfW;
-      const contentPdfH = cloneContentH * (pdfW / A4_WIDTH_PX);
-      const rawPageCount = Math.max(1, Math.ceil(contentPdfH / usableH));
-      const lastPageContent = contentPdfH - (rawPageCount - 1) * usableH;
-      const pageCount = rawPageCount > 1 && lastPageContent < 30 ? rawPageCount - 1 : rawPageCount;
-
-      // effectiveCanvasH: píxeles del canvas que corresponden al contenido real
-      const effectiveCanvasH = Math.round(cloneContentH * pixelsPerPoint);
-
-      for (let i = 0; i < pageCount; i++) {
-        if (i > 0) pdf.addPage();
-        const srcY = Math.floor(i * usableH * pixelsPerPoint);
-        const srcH = Math.min(
-          Math.ceil(usableH * pixelsPerPoint),
-          effectiveCanvasH - srcY,
-        );
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = Math.ceil(usableH * pixelsPerPoint);
-        const ctx = pageCanvas.getContext("2d");
-        if (ctx) {
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-          ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-        }
-        pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, pageMarginPx, pdfW, usableH);
-      }
-
-      const pdfBase64 = pdf.output("datauristring").split(",")[1];
+      const pdfBase64 = await generatePdfBase64();
 
       if (emailDownloadPdf) {
         const filename = customerName.trim()
           ? `cotizacion-${customerName.trim().replace(/\s+/g, "-")}.pdf`
           : "cotizacion-latam-pet.pdf";
-        pdf.save(filename);
+        const link = document.createElement("a");
+        link.href = `data:application/pdf;base64,${pdfBase64}`;
+        link.download = filename;
+        link.click();
       }
 
       const emailRes = await fetch("/api/send-quote", {
@@ -2119,6 +2293,36 @@ export default function DemoCoti01Page(): React.JSX.Element {
       });
 
       setEmailResult("ok");
+      setDbxUploadModalOpen(true);
+      setDbxUploadStatus("uploading");
+      setDbxMatchedFolderName(null);
+      setDbxFolderLink(null);
+      setDbxUploadError(null);
+
+      void (async () => {
+        try {
+          const searchResult = await searchYaCotizados(
+            { customerName, operation: tradeDirection, origin, destination },
+            APP_TESTING_PATH,
+          );
+          if (searchResult.matches.length === 0) {
+            setDbxUploadStatus("not-found");
+            return;
+          }
+          const match = searchResult.matches[0];
+          setDbxMatchedFolderName(match.name);
+          const revertData = await uploadAndTagYaCotizados(pdfBase64, match);
+          const encodedPath = revertData.renamedFolderPath
+            .split("/")
+            .map(encodeURIComponent)
+            .join("/");
+          setDbxFolderLink(`https://www.dropbox.com/home${encodedPath}`);
+          setDbxUploadStatus("done");
+        } catch (e) {
+          setDbxUploadError(e instanceof Error ? e.message : String(e));
+          setDbxUploadStatus("error");
+        }
+      })();
     } catch (e) {
       setEmailResult("error");
       setEmailError(e instanceof Error ? e.message : String(e));
@@ -2126,6 +2330,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       setEmailSending(false);
     }
   }
+
 
   async function handleDisconnectOutlook(): Promise<void> {
     setOutlookDisconnecting(true);
@@ -2548,8 +2753,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             onClick={() => {
                               setOrigin(s.value);
                               setOriginOpen(false);
-                              setDestination("");
-                              void searchQuotes(s.value, "");
+                              void searchQuotes(s.value, destination);
                             }}
                           >
                             {s.label}
@@ -2619,9 +2823,35 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   <option value="impo">IMPO</option>
                   <option value="expo">EXPO</option>
                   <option value="ambas">Ambas</option>
+                  <option value="transito">Tránsito</option>
                 </select>
               </div>
+
+              {tradeDirection === "transito" && (
+                <div className="min-w-0">
+                  <label
+                    htmlFor="dc02-transit-country"
+                    className={labelClass}
+                  >
+                    País de tránsito
+                  </label>
+                  <select
+                    id="dc02-transit-country"
+                    value={transitCountry}
+                    onChange={(e) =>
+                      setTransitCountry(
+                        e.target.value as "argentina" | "chile",
+                      )
+                    }
+                    className={inputClass}
+                  >
+                    <option value="argentina">Argentina</option>
+                    <option value="chile">Chile</option>
+                  </select>
+                </div>
+              )}
             </div>
+
             <div>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-3">
                 <div className="w-full max-w-[5.75rem] shrink-0 sm:w-[5.75rem]">
@@ -2920,7 +3150,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         <line x1="12" y1="9" x2="12" y2="13" />
                         <line x1="12" y1="17" x2="12.01" y2="17" />
                       </svg>
-                      Atención: esta mascota es braquicefálica
+                      Atención: esta mascota es braquiocefálica
                     </p>
                   )}
                 </div>
@@ -4298,6 +4528,90 @@ export default function DemoCoti01Page(): React.JSX.Element {
         ) : null}
       </div>
 
+
+      {/* Modal: subida de PDF a Dropbox */}
+      {dbxUploadModalOpen && (
+        <div
+          className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Subiendo PDF a Dropbox"
+        >
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-4 text-sm font-semibold text-zinc-900">PDF enviado</h2>
+
+            {dbxUploadStatus === "uploading" && (
+              <div className="flex flex-col items-center gap-3 py-2">
+                <span className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-200 border-t-zinc-700" />
+                <p className="text-sm text-zinc-600">Subiendo a Dropbox…</p>
+                {dbxMatchedFolderName && (
+                  <p className="max-w-full break-all text-center text-xs font-medium text-zinc-500">
+                    📁 {dbxMatchedFolderName}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {dbxUploadStatus === "done" && (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-green-700">Subido correctamente a Dropbox.</p>
+                  {dbxMatchedFolderName && (
+                    <p className="break-all text-xs text-zinc-500">
+                      📁 cotizado por app {dbxMatchedFolderName}
+                    </p>
+                  )}
+                </div>
+                {dbxFolderLink && (
+                  <a
+                    href={dbxFolderLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
+                  >
+                    Ir a la carpeta →
+                  </a>
+                )}
+              </div>
+            )}
+
+            {dbxUploadStatus === "not-found" && (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-sm text-zinc-600">No se encontró carpeta en Dropbox para este cliente.</p>
+                  <p className="text-xs text-zinc-400">El PDF no fue subido a Dropbox.</p>
+                </div>
+                <a
+                  href={`https://www.dropbox.com/home${APP_TESTING_PATH.split("/").map(encodeURIComponent).join("/")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100"
+                >
+                  Abrir directorio en Dropbox →
+                </a>
+              </div>
+            )}
+
+            {dbxUploadStatus === "error" && (
+              <div className="space-y-1">
+                <p className="text-sm text-red-700">Error al subir a Dropbox.</p>
+                <p className="text-xs text-red-500">{dbxUploadError}</p>
+              </div>
+            )}
+
+            {dbxUploadStatus !== "uploading" && (
+              <button
+                type="button"
+                onClick={() => setDbxUploadModalOpen(false)}
+                className="mt-5 w-full rounded-lg bg-zinc-800 px-4 py-2 text-xs font-medium text-white transition hover:bg-zinc-900"
+              >
+                Cerrar
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Modal: conectar Outlook (se muestra al cargar si no hay cuenta conectada) */}
       {outlookConnectModalOpen ? (
         <div
@@ -4413,7 +4727,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {emailResult === "ok" ? (
                 <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
-                  Email enviado correctamente a <strong>{emailTo}</strong>.
+                  PDF enviado correctamente a <strong>{emailTo}</strong>.
                 </div>
               ) : (
                 <div className="space-y-4">

@@ -2,6 +2,9 @@ const DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 const DROPBOX_UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload";
 const DROPBOX_CREATE_FOLDER_URL = "https://api.dropboxapi.com/2/files/create_folder_v2";
 const DROPBOX_MOVE_URL = "https://api.dropboxapi.com/2/files/move_v2";
+const DROPBOX_DELETE_URL = "https://api.dropboxapi.com/2/files/delete_v2";
+const DROPBOX_LIST_FOLDER_URL = "https://api.dropboxapi.com/2/files/list_folder";
+const DROPBOX_LIST_FOLDER_CONTINUE_URL = "https://api.dropboxapi.com/2/files/list_folder/continue";
 
 type DropboxTokenResponse = {
   access_token?: string;
@@ -36,6 +39,12 @@ export type DropboxUploadResult = {
   pathDisplay: string | null;
   pathLower: string | null;
   size: number;
+};
+
+export type DropboxListEntry = {
+  tag: string;
+  name: string;
+  pathDisplay: string | null;
 };
 
 export type DropboxPathResult = {
@@ -200,6 +209,34 @@ export async function createDropboxFolder(folderPath: string): Promise<DropboxPa
   return toDropboxPathResult(data.metadata);
 }
 
+type ListFolderPage = {
+  entries: Array<{ ".tag": string; name: string; path_display?: string }>;
+  cursor: string;
+  has_more: boolean;
+};
+
+export async function listDropboxFolder(folderPath: string): Promise<DropboxListEntry[]> {
+  const path = normalizeDropboxPath(folderPath);
+  const all: DropboxListEntry[] = [];
+
+  let page = await postDropboxJson<ListFolderPage>(DROPBOX_LIST_FOLDER_URL, {
+    path,
+    recursive: false,
+  });
+
+  while (true) {
+    for (const e of page.entries) {
+      all.push({ tag: e[".tag"], name: e.name, pathDisplay: e.path_display ?? null });
+    }
+    if (!page.has_more) break;
+    page = await postDropboxJson<ListFolderPage>(DROPBOX_LIST_FOLDER_CONTINUE_URL, {
+      cursor: page.cursor,
+    });
+  }
+
+  return all;
+}
+
 export async function moveDropboxPath(
   fromPath: string,
   toPath: string,
@@ -217,6 +254,15 @@ export async function moveDropboxPath(
     },
   );
 
+  return toDropboxPathResult(data.metadata);
+}
+
+export async function deleteDropboxPath(path: string): Promise<DropboxPathResult> {
+  const normalizedPath = normalizeDropboxPath(path);
+  const data = await postDropboxJson<{ metadata: DropboxMetadataResponse }>(
+    DROPBOX_DELETE_URL,
+    { path: normalizedPath },
+  );
   return toDropboxPathResult(data.metadata);
 }
 

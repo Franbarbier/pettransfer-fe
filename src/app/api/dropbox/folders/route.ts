@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   createDropboxFolder,
+  deleteDropboxPath,
   getDropboxConfigError,
   moveDropboxPath,
 } from "@/lib/dropboxStorage";
@@ -17,6 +18,10 @@ type DropboxFolderBody =
       action: "move";
       fromPath: string;
       toPath: string;
+    }
+  | {
+      action: "delete";
+      path: string;
     };
 
 export async function POST(req: NextRequest) {
@@ -58,6 +63,15 @@ export async function POST(req: NextRequest) {
 
       const moved = await moveDropboxPath(fromPath, toPath);
       return NextResponse.json({ ok: true, moved });
+    }
+
+    if (body.action === "delete") {
+      const path = body.path?.trim();
+      if (!path) {
+        return NextResponse.json({ error: "Falta path." }, { status: 400 });
+      }
+      const deleted = await deleteDropboxPath(path);
+      return NextResponse.json({ ok: true, deleted });
     }
 
     return NextResponse.json({ error: "Acción inválida." }, { status: 400 });

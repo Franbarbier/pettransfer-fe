@@ -1648,5 +1648,11 @@
     "nombre_en": "Domestic Shorthair",
     "tipo": "gato",
     "categoria": "sin_advertencias"
+  },
+  {
+    "nombre_es": "Mestizo",
+    "nombre_en": "Mixed Breed",
+    "tipo": "perro",
+    "categoria": "sin_advertencias"
   }
 ]
