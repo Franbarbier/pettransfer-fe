@@ -565,8 +565,8 @@ function AutoHeightDescriptionTextarea({
 type TradeDirectionChoice = "impo" | "expo" | "ambas" | "transito";
 
 export default function DemoCoti01Page(): React.JSX.Element {
-  const [origin, setOrigin] = useState("Australia");
-  const [destination, setDestination] = useState("Colombia");
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
   const [tradeDirection, setTradeDirection] =
     useState<TradeDirectionChoice>("impo");
   const [transitCountry, setTransitCountry] = useState<"argentina" | "chile">(
@@ -596,7 +596,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     null,
   );
 
-  const [customerName, setCustomerName] = useState("Ryan Reid");
+  const [customerName, setCustomerName] = useState("");
   const [agentName, setAgentName] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
   const [animalCount, setAnimalCount] = useState(1);
