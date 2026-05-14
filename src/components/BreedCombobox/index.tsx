@@ -1,16 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-
-import razasData from "@/data/razas.json";
-
-type RazaEntry = {
-  nombre_es: string;
-  nombre_en: string;
-  tipo: "perro" | "gato";
-};
-
-const razas = razasData as RazaEntry[];
+import { useBreeds } from "@/hooks/useBreeds";
 
 type Props = {
   id?: string;
@@ -22,6 +13,7 @@ type Props = {
 };
 
 export function BreedCombobox({ id, tipo, value, onChange, className, placeholder }: Props) {
+  const { breeds } = useBreeds();
   const [inputValue, setInputValue] = useState(value);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,13 +25,13 @@ export function BreedCombobox({ id, tipo, value, onChange, className, placeholde
   const suggestions = useMemo(() => {
     const q = inputValue.trim().toLowerCase();
     if (q.length < 3) return [];
-    return razas
+    return breeds
       .filter((r) => {
-        if (tipo && r.tipo !== tipo) return false;
-        return r.nombre_es.toLowerCase().includes(q) || r.nombre_en.toLowerCase().includes(q);
+        if (tipo && r.type !== tipo) return false;
+        return r.name_es.toLowerCase().includes(q) || r.name_en.toLowerCase().includes(q);
       })
       .slice(0, 12);
-  }, [inputValue, tipo]);
+  }, [inputValue, tipo, breeds]);
 
   useEffect(() => {
     setOpen(suggestions.length > 0);
@@ -55,9 +47,9 @@ export function BreedCombobox({ id, tipo, value, onChange, className, placeholde
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
-  function select(nombre_es: string) {
-    setInputValue(nombre_es);
-    onChange(nombre_es);
+  function select(name_es: string) {
+    setInputValue(name_es);
+    onChange(name_es);
     setOpen(false);
   }
 
@@ -80,16 +72,16 @@ export function BreedCombobox({ id, tipo, value, onChange, className, placeholde
         <ul className="absolute z-50 mt-1 max-h-52 w-full min-w-[180px] overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
           {suggestions.map((r) => (
             <li
-              key={`${r.tipo}-${r.nombre_en}`}
+              key={`${r.type}-${r.name_en}`}
               onMouseDown={(e) => {
                 e.preventDefault();
-                select(r.nombre_es);
+                select(r.name_es);
               }}
               className="cursor-pointer px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-100"
             >
-              {r.nombre_es}
-              {r.nombre_es !== r.nombre_en && (
-                <span className="ml-1.5 text-xs text-zinc-400">{r.nombre_en}</span>
+              {r.name_es}
+              {r.name_es !== r.name_en && (
+                <span className="ml-1.5 text-xs text-zinc-400">{r.name_en}</span>
               )}
             </li>
           ))}

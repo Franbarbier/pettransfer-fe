@@ -1,36 +1,20 @@
-import razasData from "@/data/razas.json";
-
-type RazaEntry = { nombre_es: string; nombre_en: string; tipo: string; categoria: string };
-
-const DANGER_CATEGORIAS = new Set([
-  "fuerte_potencialmente_peligroso",
-  "braquicéfalo_y_fuerte",
-]);
-
-const BRACHY_CATEGORIAS = new Set([
-  "braquicéfalo",
-  "braquicéfalo_y_fuerte",
-]);
+import type { Breed } from "@/hooks/useBreeds";
 
 /** Devuelve true si el nombre de raza (es o en) corresponde a una raza peligrosa/fuerte. */
-export function isDangerBreed(razaName: string): boolean {
+export function isDangerBreed(razaName: string, breeds: Breed[]): boolean {
   if (!razaName.trim()) return false;
   const q = razaName.trim().toLowerCase();
-  return (razasData as RazaEntry[]).some(
-    (r) =>
-      DANGER_CATEGORIAS.has(r.categoria) &&
-      (r.nombre_es.toLowerCase() === q || r.nombre_en.toLowerCase() === q),
+  return breeds.some(
+    (r) => r.danger && (r.name_es.toLowerCase() === q || r.name_en.toLowerCase() === q),
   );
 }
 
 /** Devuelve true si el nombre de raza (es o en) corresponde a una raza braquicefálica. */
-export function isBrachyBreed(razaName: string): boolean {
+export function isBrachyBreed(razaName: string, breeds: Breed[]): boolean {
   if (!razaName.trim()) return false;
   const q = razaName.trim().toLowerCase();
-  return (razasData as RazaEntry[]).some(
-    (r) =>
-      BRACHY_CATEGORIAS.has(r.categoria) &&
-      (r.nombre_es.toLowerCase() === q || r.nombre_en.toLowerCase() === q),
+  return breeds.some(
+    (r) => r.braqui && (r.name_es.toLowerCase() === q || r.name_en.toLowerCase() === q),
   );
 }
 

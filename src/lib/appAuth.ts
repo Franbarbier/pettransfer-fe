@@ -13,6 +13,7 @@ const MICROSOFT_AUTH_SCOPE = [
   "email",
   "User.Read",
   "Mail.Send",
+  "Mail.ReadWrite",
 ].join(" ");
 
 export type AppSession = {

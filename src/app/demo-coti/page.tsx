@@ -28,7 +28,14 @@ import {
   resolveCrateCountryKey,
 } from "@/lib/crateTariffsByCountry";
 import { BreedCombobox } from "@/components/BreedCombobox";
-import { useExpoItems } from "@/hooks/useExpoItems";
+import { useBreeds } from "@/hooks/useBreeds";
+import { useItemsOfficial, type OfficialItem } from "@/hooks/useItemsOfficial";
+import {
+  computeExpoItemPrice,
+  toCountryKey,
+  toFormulaKey,
+  type ExpoItemPriceCtx,
+} from "@/lib/expoItemPriceFormulas";
 import {
   type LocationSuggestOption,
   parseLocationSuggestList,
@@ -39,6 +46,7 @@ import {
   searchYaCotizados,
   APP_TESTING_PATH,
 } from "@/lib/dropboxSearch";
+import { QuotePrintLayout, type QuotePrintData, type QuotePrintCallbacks } from "@/components/QuotePrintLayout";
 
 const apiBase = getApiBaseUrl().replace(/\/$/, "");
 
@@ -58,11 +66,11 @@ const SELECTED_VENDEDOR_STORAGE_KEY = "demo-coti:selected-salesperson";
 
 /** Formato fijo de la línea "Contact" en el PDF con los datos del vendedor elegido. */
 function formatVendedorDisclaimer(v: VendedorOption): string {
-  return `LATAM PET TRANSPORT , ${v.name} , ${v.email}`;
+  return `${v.name} — ${v.email}`;
 }
 
 const INITIAL_DISCLAIMER_CONTACT =
-  "LATAM PET TRANSPORT , Mariela Gherghi , mariela@latampettransport.com";
+  "Mariela Gherghi — mariela@latampettransport.com";
 
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-400";
@@ -202,6 +210,15 @@ type OutlookMailStatus = {
   error?: string;
 };
 
+type EmailThread = {
+  id: string;
+  subject: string;
+  conversationId: string;
+  receivedDateTime: string;
+  isDraft: boolean;
+  from: { emailAddress: { name: string; address: string } };
+};
+
 type AppSessionInfo = {
   email: string;
   name: string;
@@ -297,60 +314,10 @@ function emptyPet(): PetRow {
   };
 }
 
-type ImpoTemplateMatch = {
-  title: string;
-  country: string;
-  location: string | null;
-  file_name: string;
-  relative_path: string;
-  animal_count: number | null;
-  variants: string[];
-  metadata: Record<string, unknown> | null;
-  /** Presente desde API actualizado; si falta, el merge usa solo `customer_description`. */
-  description_blocks?: Array<{
-    item_number: number;
-    title: string;
-    paragraphs: string[];
-  }>;
-  quoted_items: Array<{
-    item_number: number | null;
-    label: string;
-    amount: number | null;
-    note: string | null;
-    /** Texto al cliente (descriptions); la `note` es solo interna. */
-    customer_description: string | null;
-  }>;
-};
-
-/** Texto al cliente: solo `paragraphs` del template (el título del bloque no se repite). */
-function impoCustomerTextForQuotedItem(
-  it: ImpoTemplateMatch["quoted_items"][number],
-  tpl: ImpoTemplateMatch,
-): string {
-  const direct = it.customer_description?.trim();
-  if (direct) return direct;
-  const n = it.item_number;
-  const block =
-    n != null
-      ? tpl.description_blocks?.find((d) => d.item_number === n)
-      : undefined;
-  if (block?.paragraphs?.length) {
-    return block.paragraphs.filter(Boolean).join("\n\n").trim();
-  }
-  const ln = it.label.trim().toLowerCase();
-  if (!ln || !tpl.description_blocks?.length) return "";
-  const byTitle = tpl.description_blocks.find(
-    (d) => d.title.trim().toLowerCase() === ln,
-  );
-  if (byTitle?.paragraphs?.length) {
-    return byTitle.paragraphs.filter(Boolean).join("\n\n").trim();
-  }
-  return "";
-}
 
 type LatamFieldRow = {
   id: string;
-  source: "json" | "custom" | "impo" | "similar" | "transito";
+  source: "json" | "custom" | "impo" | "similar" | "transito" | "crate";
   /** Clave JSON (`vet_fees`) o id único para filas custom. */
   fieldKey: string;
   title: string;
@@ -359,6 +326,12 @@ type LatamFieldRow = {
   description: string;
   /** Referencia operativa (contenido que venía del JSON como aclaración). */
   internalNote: string;
+  /** Precio de referencia de la tabla items_official (solo lectura, no va al PDF). */
+  priceRef?: string;
+  /** Solo para source === "crate": pet.id estable para matching. */
+  petId?: string;
+  /** Solo para source === "crate": crateId al momento del último sync (para detectar cambios). */
+  syncedCrateId?: string;
 };
 
 /**
@@ -372,6 +345,8 @@ type LatamFieldRow = {
  */
 function latamRowThemeClasses(source: LatamFieldRow["source"]): string {
   switch (source) {
+    case "crate":
+      return "border-amber-200 bg-amber-50/70 ring-amber-100/80";
     case "impo":
       return "border-sky-200 bg-sky-50/70 ring-sky-100/80";
     case "json":
@@ -393,6 +368,8 @@ type RightPaneBudgetLine =
       title: string;
       description: string;
       price: string;
+      /** Poblado solo para líneas de crate (source === "crate"). */
+      petId?: string;
     }
   | {
       kind: "pet";
@@ -412,13 +389,6 @@ function newLatamRowId(): string {
   return `latam-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-function latamJsonFieldTitle(key: string): string {
-  return key
-    .split("_")
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-}
 
 function truncateForOption(s: string, max: number): string {
   const t = s.trim();
@@ -494,7 +464,9 @@ type PlaceholderCtx = {
   codigoDestino: string;
   cantidadJaulas: string;
   tamano: string;
+  tamanoJaulas: string;
   petsDesc: string;
+  aerolinea: string;
 };
 
 function resolvePlaceholders(text: string, ctx: PlaceholderCtx): string {
@@ -506,8 +478,9 @@ function resolvePlaceholders(text: string, ctx: PlaceholderCtx): string {
     .replace(/\[codigo destino\]/g, ctx.codigoDestino)
     .replace(/\[cantidad de jaulas\]/g, ctx.cantidadJaulas || "[cantidad de jaulas]")
     .replace(/\[tamaño\]/g, ctx.tamano || "[tamaño]")
-    .replace(/\[cantidad y tipo de mascotas\]/g, ctx.petsDesc || "[cantidad y tipo de mascotas]");
-  // [aerolinea] se deja sin reemplazar intencionalmente
+    .replace(/\[tamaño de jaulas\]/g, ctx.tamanoJaulas || "[tamaño de jaulas]")
+    .replace(/\[cantidad y tipo de mascotas\]/g, ctx.petsDesc || "[cantidad y tipo de mascotas]")
+    .replace(/\[aerolinea\]/g, ctx.aerolinea || "[aerolinea]");
 }
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -602,7 +575,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [animalCount, setAnimalCount] = useState(1);
   const [pets, setPets] = useState<PetRow[]>([emptyPet()]);
   const [quotedDate, setQuotedDate] = useState(() => todayLocalIsoDate());
-  const [arrivalDate, setArrivalDate] = useState("");
+  const [travelDate, setTravelDate] = useState("");
+  const [aerolinea, setAerolinea] = useState("");
   const [disclaimerContract, setDisclaimerContract] = useState(
     INITIAL_DISCLAIMER_CONTRACT,
   );
@@ -627,11 +601,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [editVendedorEmail, setEditVendedorEmail] = useState("");
   const [editVendedorSubmitting, setEditVendedorSubmitting] = useState(false);
   const [latamRows, setLatamRows] = useState<LatamFieldRow[]>([]);
-  const [impoTemplates, setImpoTemplates] = useState<ImpoTemplateMatch[]>([]);
-  const [impoTemplatesLoading, setImpoTemplatesLoading] = useState(false);
-  const [impoTemplatesError, setImpoTemplatesError] = useState<string | null>(
-    null,
-  );
   const [latamCustomFormOpen, setLatamCustomFormOpen] = useState(false);
   const [latamCustomTitle, setLatamCustomTitle] = useState("");
   const [latamCustomDesc, setLatamCustomDesc] = useState("");
@@ -650,6 +619,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [emailSending, setEmailSending] = useState(false);
   const [emailResult, setEmailResult] = useState<"ok" | "error" | null>(null);
   const [emailError, setEmailError] = useState("");
+  const [threadResults, setThreadResults] = useState<EmailThread[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [threadSearchError, setThreadSearchError] = useState("");
+  const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null);
   const [dbxUploadStatus, setDbxUploadStatus] = useState<"idle" | "uploading" | "done" | "error" | "not-found">("idle");
   const [dbxUploadError, setDbxUploadError] = useState<string | null>(null);
   const [dbxMatchedFolderName, setDbxMatchedFolderName] = useState<string | null>(null);
@@ -897,100 +870,43 @@ export default function DemoCoti01Page(): React.JSX.Element {
     if (v) setDisclaimerContact(formatVendedorDisclaimer(v));
   }, [selectedVendedorId, vendedores]);
 
-  useEffect(() => {
-    if (tradeDirection === "expo") {
-      setImpoTemplates([]);
-      setImpoTemplatesError(null);
-      setImpoTemplatesLoading(false);
-      return;
-    }
-    const d = debouncedDest.trim();
-    if (d.length < 2) {
-      setImpoTemplates([]);
-      setImpoTemplatesError(null);
-      return;
-    }
-    const ac = new AbortController();
-    setImpoTemplatesLoading(true);
-    setImpoTemplatesError(null);
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${apiBase}/quotes/impo-templates/for-destination?${new URLSearchParams(
-            {
-              destination: d,
-              pets: String(Math.max(1, animalCount)),
-            },
-          )}`,
-          { signal: ac.signal },
-        );
-        const body: unknown = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const err =
-            typeof body === "object" && body !== null && "error" in body
-              ? String((body as { error: unknown }).error)
-              : res.statusText;
-          if (!ac.signal.aborted) {
-            setImpoTemplatesError(err);
-            setImpoTemplates([]);
-          }
-          return;
-        }
-        const list =
-          typeof body === "object" &&
-          body !== null &&
-          "templates" in body &&
-          Array.isArray((body as { templates: unknown }).templates)
-            ? (body as { templates: ImpoTemplateMatch[] }).templates
-            : [];
-        // Por ahora ocultamos variantes "puppy" (ej.: México MEX tiene
-        // `1_pet_puppy`). Más adelante se puede agregar un toggle para
-        // elegir explícitamente si la operación es con cachorro.
-        const filtered = list.filter(
-          (tpl) =>
-            !Array.isArray(tpl.variants) || !tpl.variants.includes("puppy"),
-        );
-        if (!ac.signal.aborted) {
-          setImpoTemplates(filtered);
-        }
-      } catch (e: unknown) {
-        if (ac.signal.aborted) return;
-        setImpoTemplatesError(e instanceof Error ? e.message : String(e));
-        setImpoTemplates([]);
-      } finally {
-        if (!ac.signal.aborted) setImpoTemplatesLoading(false);
-      }
-    })();
-    return () => ac.abort();
-  }, [debouncedDest, animalCount, tradeDirection]);
+  const { breeds } = useBreeds();
 
-  const { latamJaulasHint, latamPreEntregaHint, latamProfitFields, expoLoading } =
-    useExpoItems(origin);
+  const {
+    officialExpoItems,
+    officialImpoItems,
+    officialExpoMatchedPais,
+    officialImpoMatchedPais,
+    officialLoading,
+  } = useItemsOfficial(tradeDirection, debouncedOrigin, debouncedDest);
 
-  /**
-   * Al cambiar el país de referencia del JSON profit, se quitan solo las filas
-   * cargadas desde ese JSON; las de template IMPO o personalizadas se mantienen.
-   */
+  const officialExpoItemsForPanel = useMemo(() => {
+    const CRATE_KEYS = ["travel crate", "crate pre-delivery"];
+    return (officialExpoItems ?? []).filter(
+      (item) => !CRATE_KEYS.includes(item.item_en.toLowerCase()),
+    );
+  }, [officialExpoItems]);
+
   useEffect(() => {
     setLatamCustomFormOpen(false);
     setLatamCustomTitle("");
     setLatamCustomDesc("");
     setLatamRows((prev) => prev.filter((r) => r.source !== "json"));
-  }, [latamProfitFields?.countryKey]);
+  }, [officialExpoMatchedPais]);
 
   const latamJsonOptionsToAdd = useMemo(() => {
-    if (!latamProfitFields?.fields.length) return [];
+    if (!officialExpoItemsForPanel.length) return [];
     const usedJson = new Set(
       latamRows.filter((r) => r.source === "json").map((r) => r.fieldKey),
     );
-    return latamProfitFields.fields
-      .filter((f) => !usedJson.has(f.key))
-      .map((f) => ({
-        key: f.key,
-        title: latamJsonFieldTitle(f.key),
-        internalNotePreview: f.clarification,
+    return officialExpoItemsForPanel
+      .filter((item) => !usedJson.has(`official_expo_${item.id}`))
+      .map((item) => ({
+        key: `official_expo_${item.id}`,
+        title: item.item_es || item.item_en,
+        internalNotePreview: [item.price_ref, item.notes].filter(Boolean).join(" · "),
       }));
-  }, [latamProfitFields, latamRows]);
+  }, [officialExpoItemsForPanel, latamRows]);
 
   function removeLatamRow(rowId: string): void {
     setLatamRows((prev) => prev.filter((r) => r.id !== rowId));
@@ -1175,147 +1091,143 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setLatamRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)),
     );
+    if (patch.price !== undefined) {
+      const row = latamRows.find((r) => r.id === rowId);
+      if (row?.source === "crate" && row.petId) {
+        const petIndex = pets.findIndex((p) => p.id === row.petId);
+        if (petIndex >= 0) {
+          setPets((prev) =>
+            prev.map((p, i) => (i === petIndex ? { ...p, costo: patch.price! } : p)),
+          );
+        }
+      }
+    }
   }
 
-  const buildImpoTemplateRow = useCallback(
-    (
-      template: ImpoTemplateMatch,
-      itemIndex: number,
-    ): LatamFieldRow | null => {
-      const it = template.quoted_items[itemIndex];
-      if (!it) return null;
-      const label = it.label.trim();
-      if (!label) return null;
-      const fieldKey = `impo_${template.title}_${it.item_number ?? "u"}_${itemIndex}`;
-      const internalBits: string[] = [];
-      if (it.note?.trim()) internalBits.push(it.note.trim());
-      internalBits.push(`${template.file_name} · ${template.title}`);
-      return {
-        id: newLatamRowId(),
-        source: "impo",
-        fieldKey,
-        title: label,
-        price:
-          it.amount != null && Number.isFinite(it.amount)
-            ? String(it.amount)
-            : "",
-        description: impoCustomerTextForQuotedItem(it, template),
-        internalNote: internalBits.join(" · "),
-      };
-    },
-    [],
-  );
-
-  function addImpoTemplateItem(
-    template: ImpoTemplateMatch,
-    itemIndex: number,
-  ): void {
-    const row = buildImpoTemplateRow(template, itemIndex);
-    if (!row) return;
-    setLatamRows((prev) => {
-      if (prev.some((r) => r.source === "impo" && r.fieldKey === row.fieldKey)) {
-        return prev;
-      }
-      return [...prev, row];
-    });
+  function resolveOfficialPrice(item: OfficialItem): { price: string; priceRef: string | undefined } {
+    const activePets = pets.slice(0, Math.min(animalCount, pets.length));
+    const ctx: ExpoItemPriceCtx = {
+      animalCount,
+      dogs: activePets.filter((p) => p.tipo === "perro").length,
+      cats: activePets.filter((p) => p.tipo === "gato").length,
+    };
+    const computed = computeExpoItemPrice(toCountryKey(item.country), toFormulaKey(item.item_en), ctx);
+    if (computed !== null) {
+      return { price: computed, priceRef: item.price_ref ?? undefined };
+    }
+    const pr = item.price_ref;
+    if (pr?.toLowerCase().includes("siempre")) {
+      const match = pr.match(/USD\s*([\d,.]+)/i);
+      return { price: match ? match[1].trim() : "", priceRef: pr };
+    }
+    return { price: "", priceRef: pr ?? undefined };
   }
 
-  const addImpoTemplateItems = useCallback(
-    (template: ImpoTemplateMatch): void => {
-      const rows: LatamFieldRow[] = [];
-      for (let idx = 0; idx < template.quoted_items.length; idx++) {
-        const row = buildImpoTemplateRow(template, idx);
-        if (row) rows.push(row);
-      }
-      if (rows.length === 0) return;
-      setLatamRows((prev) => {
-        const existingKeys = new Set(
-          prev.filter((r) => r.source === "impo").map((r) => r.fieldKey),
-        );
-        const toAppend = rows.filter((r) => !existingKeys.has(r.fieldKey));
-        if (toAppend.length === 0) return prev;
-        for (const r of toAppend) existingKeys.add(r.fieldKey);
-        return [...prev, ...toAppend];
-      });
-    },
-    [buildImpoTemplateRow],
-  );
-
-  function addLatamJsonRow(jsonKey: string): void {
-    if (!latamProfitFields?.fields) return;
-    const f = latamProfitFields.fields.find((x) => x.key === jsonKey);
-    if (!f) return;
+  function addOfficialImpoItem(item: OfficialItem): void {
+    const key = `official_impo_${item.id}`;
+    const { price, priceRef } = resolveOfficialPrice(item);
     setLatamRows((prev) => {
-      if (prev.some((r) => r.source === "json" && r.fieldKey === f.key)) {
-        return prev;
-      }
+      if (prev.some((r) => r.source === "impo" && r.fieldKey === key)) return prev;
       return [
         ...prev,
         {
           id: newLatamRowId(),
-          source: "json",
-          fieldKey: f.key,
-          title: latamJsonFieldTitle(f.key),
-          price: "",
-          description: f.description_es ?? f.description_en ?? "",
-          internalNote: f.clarification,
-        },
-      ];
-    });
-  }
-
-  /**
-   * Agrega el sub-ítem "Pre-entrega de la jaula" como fila del presupuesto.
-   * Usa la misma `source="json"` y `fieldKey="pre_entrega_de_la_jaula"` para
-   * que el dedup general funcione (no se duplica si alguien ya lo agregó).
-   */
-  function addPreEntregaJaulaItem(): void {
-    if (!latamPreEntregaHint) return;
-    const key = "pre_entrega_de_la_jaula";
-    setLatamRows((prev) => {
-      if (prev.some((r) => r.source === "json" && r.fieldKey === key)) {
-        return prev;
-      }
-      return [
-        {
-          id: newLatamRowId(),
-          source: "json",
+          source: "impo",
           fieldKey: key,
-          title: "Pre-entrega de la jaula",
-          price: "",
-          description: "",
-          internalNote: latamPreEntregaHint.note,
+          title: item.item_es || item.item_en,
+          price,
+          description: item.description_es ?? item.description_en ?? "",
+          internalNote: item.notes ?? "",
+          priceRef,
         },
-        ...prev,
       ];
     });
   }
 
-  const addAllLatamJsonGuideItems = useCallback((): void => {
-    const fields = latamProfitFields?.fields;
-    if (!fields?.length) return;
+  const addImpoItemsForAirport = useCallback((airport: string | null): void => {
+    if (!officialImpoItems?.length) return;
+    const airportItems = officialImpoItems.filter((i) => i.airport === airport);
+    if (!airportItems.length) return;
     setLatamRows((prev) => {
-      const usedJson = new Set(
-        prev.filter((r) => r.source === "json").map((r) => r.fieldKey),
+      const existingKeys = new Set(
+        prev.filter((r) => r.source === "impo").map((r) => r.fieldKey),
       );
       const newRows: LatamFieldRow[] = [];
-      for (const f of fields) {
-        if (usedJson.has(f.key)) continue;
-        usedJson.add(f.key);
+      for (const item of airportItems) {
+        const key = `official_impo_${item.id}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        const { price, priceRef } = resolveOfficialPrice(item);
         newRows.push({
           id: newLatamRowId(),
-          source: "json",
-          fieldKey: f.key,
-          title: latamJsonFieldTitle(f.key),
-          price: "",
-          description: f.description_es ?? f.description_en ?? "",
-          internalNote: f.clarification,
+          source: "impo",
+          fieldKey: key,
+          title: item.item_es || item.item_en,
+          price,
+          description: item.description_es ?? item.description_en ?? "",
+          internalNote: item.notes ?? "",
+          priceRef,
         });
       }
       if (newRows.length === 0) return prev;
       return [...prev, ...newRows];
     });
-  }, [latamProfitFields]);
+  }, [officialImpoItems]);
+
+  function addLatamJsonRow(jsonKey: string): void {
+    const item = officialExpoItemsForPanel.find(
+      (i) => `official_expo_${i.id}` === jsonKey,
+    );
+    if (!item) return;
+    setLatamRows((prev) => {
+      if (prev.some((r) => r.source === "json" && r.fieldKey === jsonKey)) return prev;
+      return [
+        ...prev,
+        (() => {
+          const { price, priceRef } = resolveOfficialPrice(item);
+          return {
+            id: newLatamRowId(),
+            source: "json" as const,
+            fieldKey: jsonKey,
+            title: item.item_es || item.item_en,
+            price,
+            description: item.description_es ?? item.description_en ?? "",
+            internalNote: item.notes ?? "",
+            priceRef,
+          };
+        })(),
+      ];
+    });
+  }
+
+
+  const addAllLatamJsonGuideItems = useCallback((): void => {
+    if (!officialExpoItemsForPanel.length) return;
+    setLatamRows((prev) => {
+      const usedJson = new Set(
+        prev.filter((r) => r.source === "json").map((r) => r.fieldKey),
+      );
+      const newRows: LatamFieldRow[] = [];
+      for (const item of officialExpoItemsForPanel) {
+        const key = `official_expo_${item.id}`;
+        if (usedJson.has(key)) continue;
+        usedJson.add(key);
+        const { price, priceRef } = resolveOfficialPrice(item);
+        newRows.push({
+          id: newLatamRowId(),
+          source: "json",
+          fieldKey: key,
+          title: item.item_es || item.item_en,
+          price,
+          description: item.description_es ?? item.description_en ?? "",
+          internalNote: item.notes ?? "",
+          priceRef,
+        });
+      }
+      if (newRows.length === 0) return prev;
+      return [...prev, ...newRows];
+    });
+  }, [officialExpoItemsForPanel]);
 
   function submitLatamCustom(): void {
     const t = latamCustomTitle.trim();
@@ -1354,36 +1266,58 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const autoAddedTransitoSigRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (impoTemplatesLoading) return;
-    const includeImpo =
-      tradeDirection === "impo" || tradeDirection === "ambas";
-    if (!includeImpo || impoTemplates.length === 0) {
+    if (officialLoading) return;
+    const includeImpo = tradeDirection === "impo" || tradeDirection === "ambas";
+    if (!includeImpo || !officialImpoItems?.length) {
       autoAddedImpoSigRef.current = null;
       return;
     }
-    const preferred =
-      impoTemplates.find((t) => t.variants?.includes("default")) ??
-      impoTemplates[0];
-    if (!preferred) return;
-    const sig = `${preferred.title}|${preferred.location ?? ""}|${preferred.file_name}`;
+    const iataDestino = extractIataCode(destination).toUpperCase();
+    const itemsForAirport = iataDestino
+      ? officialImpoItems.filter((it) => it.airport?.toUpperCase() === iataDestino)
+      : [];
+    const sig = `official_impo|${officialImpoMatchedPais ?? ""}|${iataDestino}`;
     if (autoAddedImpoSigRef.current === sig) return;
     setLatamRows((prev) => prev.filter((r) => r.source !== "impo"));
     autoAddedImpoSigRef.current = sig;
-    addImpoTemplateItems(preferred);
-  }, [addImpoTemplateItems, impoTemplates, impoTemplatesLoading, tradeDirection]);
+    if (!itemsForAirport.length) return;
+    setLatamRows((prev) => {
+      const existingKeys = new Set(
+        prev.filter((r) => r.source === "impo").map((r) => r.fieldKey),
+      );
+      const newRows: LatamFieldRow[] = [];
+      for (const item of itemsForAirport) {
+        const key = `official_impo_${item.id}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        const { price, priceRef } = resolveOfficialPrice(item);
+        newRows.push({
+          id: newLatamRowId(),
+          source: "impo",
+          fieldKey: key,
+          title: item.item_es || item.item_en,
+          price,
+          description: item.description_es ?? item.description_en ?? "",
+          internalNote: item.notes ?? "",
+          priceRef,
+        });
+      }
+      if (newRows.length === 0) return prev;
+      return [...prev, ...newRows];
+    });
+  }, [officialImpoItems, officialImpoMatchedPais, officialLoading, tradeDirection, destination]);
 
   useEffect(() => {
-    const includeExpo =
-      tradeDirection === "expo" || tradeDirection === "ambas";
-    if (!includeExpo || !latamProfitFields?.fields.length) {
+    const includeExpo = tradeDirection === "expo" || tradeDirection === "ambas";
+    if (!includeExpo || !officialExpoItemsForPanel.length) {
       autoAddedExpoSigRef.current = null;
       return;
     }
-    const sig = latamProfitFields.countryKey;
+    const sig = officialExpoMatchedPais ?? "";
     if (autoAddedExpoSigRef.current === sig) return;
     autoAddedExpoSigRef.current = sig;
     addAllLatamJsonGuideItems();
-  }, [addAllLatamJsonGuideItems, latamProfitFields, tradeDirection]);
+  }, [addAllLatamJsonGuideItems, officialExpoItemsForPanel, officialExpoMatchedPais, tradeDirection]);
 
   useEffect(() => {
     if (tradeDirection !== "transito") {
@@ -1490,42 +1424,72 @@ export default function DemoCoti01Page(): React.JSX.Element {
     [crateTariffsData, origin],
   );
 
-  /** Vista previa PDF: primero crates por animal, luego ítems LATAM. */
+  /** Sincroniza ítems de crate en latamRows (siempre primeros) con el estado de mascotas. */
+  useEffect(() => {
+    setLatamRows((prev) => {
+      const n = Math.min(animalCount, pets.length);
+      const existingByPetId = new Map<string, LatamFieldRow>();
+      for (const r of prev) {
+        if (r.source === "crate" && r.petId) existingByPetId.set(r.petId, r);
+      }
+      const nonCrateRows = prev.filter((r) => r.source !== "crate");
+      const crateRows: LatamFieldRow[] = [];
+      for (let i = 0; i < n; i++) {
+        const p = pets[i];
+        const tipoLabel =
+          p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet";
+        const name = p.nombre.trim() || `#${i + 1}`;
+        const existing = existingByPetId.get(p.id);
+        const crateIdChanged = existing?.syncedCrateId !== p.crateId;
+        const hasCrateSelected = p.hasCrate && !!p.crateId;
+        let defaultDesc: string;
+        let price: string;
+        if (hasCrateSelected) {
+          const crate = crateOptionsForOrigin.find((c) => c.id === p.crateId);
+          const cratePart = crate
+            ? [
+                crate.size_code,
+                crate.pet_scope,
+                crate.measures_cm ? `${crate.measures_cm} cm` : null,
+                crate.weight_vol_kg ? `vol. ${crate.weight_vol_kg} kg` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "";
+          defaultDesc = [p.raza.trim(), cratePart].filter(Boolean).join(" · ");
+          price = p.costo;
+        } else {
+          defaultDesc = "Client will provide";
+          price = "0";
+        }
+        crateRows.push({
+          id: existing?.id ?? newLatamRowId(),
+          source: "crate",
+          fieldKey: `crate-${p.id}`,
+          petId: p.id,
+          syncedCrateId: p.crateId,
+          title: `Crate · ${tipoLabel} · ${name}`,
+          price,
+          description: existing && !crateIdChanged ? existing.description : defaultDesc,
+          internalNote: "",
+        });
+      }
+      return [...crateRows, ...nonCrateRows];
+    });
+  }, [pets, animalCount, crateOptionsForOrigin]);
+
+  /** Vista previa PDF: ítems LATAM (crates ya incluidos primero via latamRows). */
   const rightPaneBudgetLines = useMemo((): RightPaneBudgetLine[] => {
-    const lines: RightPaneBudgetLine[] = [];
-    const n = Math.min(animalCount, pets.length);
-    for (let i = 0; i < n; i++) {
-      const p = pets[i];
-      if (!p.hasCrate) continue;
-      const crate = crateOptionsForOrigin.find((c) => c.id === p.crateId);
-      const cratePart = crate ? formatCrateOptionLabel(crate) : "";
-      const tipoLabel =
-        p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet";
-      const name = p.nombre.trim() || `#${i + 1}`;
-      const descBits: string[] = [];
-      if (p.raza.trim()) descBits.push(p.raza.trim());
-      if (cratePart) descBits.push(cratePart);
-      lines.push({
-        kind: "pet",
-        id: `pet-costo-${i}`,
-        petIndex: i,
-        title: `Crate · ${tipoLabel} · ${name}`,
-        description: descBits.join(" · "),
-        price: p.costo,
-      });
-    }
-    for (const r of latamRows) {
-      lines.push({
-        kind: "latam",
-        id: r.id,
-        rowId: r.id,
-        title: r.title,
-        description: r.description,
-        price: r.price,
-      });
-    }
-    return lines;
-  }, [animalCount, crateOptionsForOrigin, latamRows, pets]);
+    return latamRows.map((r) => ({
+      kind: "latam" as const,
+      id: r.id,
+      rowId: r.id,
+      title: r.title,
+      description: r.description,
+      price: r.price,
+      petId: r.petId,
+    }));
+  }, [latamRows]);
 
   const rightPaneBudgetTotal = useMemo(() => {
     let sum = 0;
@@ -1558,6 +1522,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
           .filter(Boolean),
       ),
     ];
+    const allSizes = activePets
+      .filter((p) => p.hasCrate && p.crateId)
+      .map((p) => crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? "")
+      .filter(Boolean);
+    const formatSize = (s: string) => (/^\d/.test(s) ? `#${s}` : s);
 
     const iataOrigin = extractIataCode(origin);
     const iataDestino = extractIataCode(destination);
@@ -1570,9 +1539,32 @@ export default function DemoCoti01Page(): React.JSX.Element {
       codigoDestino: iataDestino || destination.trim() || "[codigo destino]",
       cantidadJaulas: crateCount > 0 ? String(crateCount) : "",
       tamano: uniqueSizes.join(", "),
+      tamanoJaulas: allSizes.map(formatSize).join(", "),
       petsDesc,
+      aerolinea,
     };
-  }, [animalCount, pets, crateOptionsForOrigin, origin, destination]);
+  }, [animalCount, pets, crateOptionsForOrigin, origin, destination, aerolinea]);
+
+  const printData = useMemo((): QuotePrintData => ({
+    customerName,
+    agentName,
+    origin,
+    destination,
+    quotedDate,
+    travelDate,
+    petsLine: formatAnimalsLine(animalCount, pets),
+    budgetLines: rightPaneBudgetLines.map((line) => ({
+      id: line.id,
+      rowId: line.kind === "latam" ? line.rowId : undefined,
+      title: line.title,
+      description: resolvePlaceholders(line.description, placeholderCtx),
+      price: line.price,
+    })),
+    total: rightPaneBudgetTotal,
+    disclaimerContract,
+    disclaimerContact,
+    salesman: vendedores.find((v) => v.id === selectedVendedorId),
+  }), [customerName, agentName, origin, destination, quotedDate, travelDate, animalCount, pets, rightPaneBudgetLines, rightPaneBudgetTotal, placeholderCtx, disclaimerContract, disclaimerContact, vendedores, selectedVendedorId]);
 
   const detectedCrateCountryKey = useMemo(
     () => resolveCrateCountryKey(origin),
@@ -1582,7 +1574,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
   useEffect(() => {
     setPets((prev) =>
       prev.map((p) => {
-        const danger = isDangerBreed(p.raza);
+        const danger = isDangerBreed(p.raza, breeds);
         if (danger) {
           const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
           const costo = defaultCostoFromCrateSelection(crateTariffsData, origin, lar82Id);
@@ -1615,13 +1607,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
   // asigna LAR 82 de inmediato sin esperar cambio de crateOptionsForOrigin.
   useEffect(() => {
     const needsFill = pets.some(
-      (p) => isDangerBreed(p.raza) && (!p.hasCrate || p.crateId !== defaultCrateIdForDanger(crateOptionsForOrigin)),
+      (p) => isDangerBreed(p.raza, breeds) && (!p.hasCrate || p.crateId !== defaultCrateIdForDanger(crateOptionsForOrigin)),
     );
     if (!needsFill) return;
     const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
     setPets((prev) =>
       prev.map((p) => {
-        if (!isDangerBreed(p.raza) || (p.hasCrate && p.crateId === lar82Id)) return p;
+        if (!isDangerBreed(p.raza, breeds) || (p.hasCrate && p.crateId === lar82Id)) return p;
         const costo = defaultCostoFromCrateSelection(crateTariffsData, origin, lar82Id);
         return { ...p, hasCrate: true, crateId: lar82Id, costo };
       }),
@@ -1836,7 +1828,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const next = [...prev];
       const merged = { ...next[index], ...patch };
       if (Object.prototype.hasOwnProperty.call(patch, "raza")) {
-        const danger = isDangerBreed(merged.raza);
+        const danger = isDangerBreed(merged.raza, breeds);
         if (danger) {
           merged.hasCrate = true;
           const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
@@ -1851,7 +1843,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
         }
       }
       if (Object.prototype.hasOwnProperty.call(patch, "tipo")) {
-        const danger = isDangerBreed(merged.raza);
+        const danger = isDangerBreed(merged.raza, breeds);
         const allowed = filterCrateOptionsForPet(
           crateOptionsForOrigin,
           merged.tipo,
@@ -1886,7 +1878,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       if (!p || p.hasCrate) return prev;
       let crateId = p.crateId;
       let costo = p.costo;
-      if (isDangerBreed(p.raza) && !crateId) {
+      if (isDangerBreed(p.raza, breeds) && !crateId) {
         const def = defaultCrateIdForDanger(crateOptionsForOrigin);
         if (def) {
           crateId = def;
@@ -2064,6 +2056,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setEmailBody(body);
     setEmailResult(null);
     setEmailError("");
+    setThreadResults([]);
+    setThreadSearchError("");
+    setSelectedThread(null);
     setDbxUploadStatus("idle");
     setDbxUploadError(null);
     setDbxUploadModalOpen(false);
@@ -2071,8 +2066,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
   }
 
   async function generatePdfBase64(): Promise<string> {
-    const pane = document.getElementById("dc02-pdf-content") ?? document.getElementById("dc02-right-pane");
-    if (!pane) throw new Error("No se encontró el panel de PDF.");
+    const mainEl = document.querySelector<HTMLElement>("[data-pdf-main]");
+    const tailEl = document.querySelector<HTMLElement>("[data-pdf-tail]");
+    if (!mainEl || !tailEl) throw new Error("No se encontró el contenido del PDF (main/tail).");
 
     const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
       import("html2canvas"),
@@ -2080,139 +2076,219 @@ export default function DemoCoti01Page(): React.JSX.Element {
     ]);
     const A4_WIDTH_PX = 794;
 
-    // Dimensiones del PDF — se calculan antes de capturar para usarlas en onclone
     const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
     const pdfW = pdf.internal.pageSize.getWidth();
     const pdfPageH = pdf.internal.pageSize.getHeight();
-    const pageMarginPx = 20;
+    const pageMarginPx = 0;
     const usableH = pdfPageH - pageMarginPx * 2;
 
-    // ── Paso 1: transformar el DOM real para medir altura con CSS completo ──
-    // Reemplazamos los textareas con divs (display:none en el original)
-    // para que el scrollHeight real refleje el contenido sin rows forzados.
+    // ── Mover wrapper on-screen para que html2canvas capture (no soporta off-screen extremo) ──
+    const wrapper = mainEl.parentElement;
+    const originalWrapperStyle = wrapper?.getAttribute("style") ?? "";
+    if (wrapper) {
+      wrapper.style.position = "fixed";
+      wrapper.style.left = "0px";
+      wrapper.style.top = "0px";
+      wrapper.style.zIndex = "-1";
+      wrapper.style.opacity = "0";
+      wrapper.style.pointerEvents = "none";
+    }
+
+    // Reemplazo de textareas → divs en LIVE DOM para que scrollHeight refleje contenido real
     type TaReplacement = { ta: HTMLTextAreaElement; div: HTMLDivElement };
     const taReplacements: TaReplacement[] = [];
-    pane.querySelectorAll<HTMLTextAreaElement>("textarea").forEach((ta) => {
-      const div = document.createElement("div");
-      div.textContent = ta.value;
-      div.className = ta.className;
-      div.style.whiteSpace = "pre-wrap";
-      div.style.height = "auto";
-      div.style.overflow = "visible";
-      ta.parentNode!.insertBefore(div, ta);
-      ta.style.display = "none";
-      taReplacements.push({ ta, div });
+    [mainEl, tailEl].forEach((el) => {
+      el.querySelectorAll<HTMLTextAreaElement>("textarea").forEach((ta) => {
+        const div = document.createElement("div");
+        div.textContent = ta.value;
+        div.className = ta.className;
+        div.style.whiteSpace = "pre-wrap";
+        div.style.height = "auto";
+        div.style.overflow = "visible";
+        ta.parentNode!.insertBefore(div, ta);
+        ta.style.display = "none";
+        taReplacements.push({ ta, div });
+      });
     });
 
-    // Medición en el DOM real (con todo el CSS de Tailwind aplicado)
-    const measuredH = pane.scrollHeight;
-    const cloneContentH = Math.max(measuredH, Math.ceil(usableH));
-    const captureH = cloneContentH;
+    const mainH = mainEl.scrollHeight;
+    const tailH = tailEl.scrollHeight;
 
-    // ── Paso 2: capturar con html2canvas ──
-    const canvas = await html2canvas(pane, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: "#ffffff",
-      width: A4_WIDTH_PX,
-      height: captureH,
-      windowWidth: A4_WIDTH_PX,
-      windowHeight: captureH,
-      scrollX: 0,
-      scrollY: 0,
-      onclone: (cloneDoc, cloneEl) => {
-        // Limpiar constraints de todos los padres
-        let parent = cloneEl.parentElement;
-        while (parent && parent !== cloneDoc.body) {
-          parent.style.cssText = "width:auto;max-width:none;padding:0;margin:0;overflow:visible;border:none;box-shadow:none;border-radius:0;";
-          parent = parent.parentElement;
+    // Break points (en CSS px relativo a mainEl) — usaremos esto para no cortar texto horizontalmente.
+    const mainTop = mainEl.getBoundingClientRect().top;
+    const breakPointsCss: number[] = [];
+    mainEl.querySelectorAll<HTMLElement>("[data-atomic]").forEach((r) => {
+      breakPointsCss.push(r.getBoundingClientRect().top - mainTop);
+    });
+
+    const sharedOnclone = (cloneDoc: Document, cloneEl: HTMLElement) => {
+      let parent = cloneEl.parentElement;
+      while (parent && parent !== cloneDoc.body) {
+        parent.style.cssText = "width:auto;max-width:none;padding:0;margin:0;overflow:visible;border:none;box-shadow:none;border-radius:0;";
+        parent = parent.parentElement;
+      }
+      cloneEl.style.width = `${A4_WIDTH_PX}px`;
+      cloneEl.style.minWidth = `${A4_WIDTH_PX}px`;
+      cloneEl.style.height = "auto";
+      cloneEl.style.overflow = "visible";
+
+      cloneEl.querySelectorAll<HTMLElement>(".items-center").forEach((el) => {
+        el.style.display = "flex";
+        el.style.alignItems = "center";
+        if (el.classList.contains("justify-center")) el.style.justifyContent = "center";
+        if (el.classList.contains("justify-between")) el.style.justifyContent = "space-between";
+        if (el.classList.contains("justify-end")) el.style.justifyContent = "flex-end";
+      });
+
+
+      cloneEl.querySelectorAll<SVGElement>("svg").forEach((svg) => {
+        svg.style.display = "block";
+        svg.style.width = "14px";
+        svg.style.height = "14px";
+        svg.style.flexShrink = "0";
+        svg.style.transform = "translateY(2px)";
+      });
+
+      cloneEl.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+        if (input.type === "date") {
+          input.style.opacity = "0";
+          input.style.position = "absolute";
+          return;
         }
-        cloneEl.style.width = `${A4_WIDTH_PX}px`;
-        cloneEl.style.minWidth = `${A4_WIDTH_PX}px`;
-        cloneEl.style.height = "auto";
-        cloneEl.style.overflow = "visible";
+        const span = cloneDoc.createElement("span");
+        span.textContent = input.value || "";
+        span.className = input.className;
+        input.parentNode?.replaceChild(span, input);
+      });
 
-        // Forzar alineación vertical en flex containers del header de info
-        cloneEl.querySelectorAll<HTMLElement>(".items-center").forEach((el) => {
-          el.style.display = "flex";
-          el.style.alignItems = "center";
-        });
+      cloneEl.querySelectorAll<HTMLElement>("button, [data-page-break]").forEach((el) => {
+        el.style.display = "none";
+      });
+    };
 
-        // SVGs: block + tamaño explícito
-        cloneEl.querySelectorAll<SVGElement>("svg").forEach((svg) => {
-          svg.style.display = "block";
-          svg.style.width = "14px";
-          svg.style.height = "14px";
-          svg.style.flexShrink = "0";
-          svg.style.transform = "translateY(2px)";
-        });
+    let mainCanvas: HTMLCanvasElement;
+    let tailCanvas: HTMLCanvasElement;
+    try {
+      mainCanvas = await html2canvas(mainEl, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#d6d6cc",
+        width: A4_WIDTH_PX,
+        height: mainH,
+        windowWidth: A4_WIDTH_PX,
+        windowHeight: mainH,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: sharedOnclone,
+      });
+      tailCanvas = await html2canvas(tailEl, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#d6d6cc",
+        width: A4_WIDTH_PX,
+        height: tailH,
+        windowWidth: A4_WIDTH_PX,
+        windowHeight: tailH,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: sharedOnclone,
+      });
+    } finally {
+      taReplacements.forEach(({ ta, div }) => {
+        ta.style.display = "";
+        div.parentNode?.removeChild(div);
+      });
+      if (wrapper) {
+        if (originalWrapperStyle) wrapper.setAttribute("style", originalWrapperStyle);
+        else wrapper.removeAttribute("style");
+      }
+    }
 
-        // Liberar overflow-hidden en wrappers de campos fecha
-        cloneEl.querySelectorAll<HTMLElement>('[class*="overflow-hidden"]').forEach((el) => {
-          el.style.overflow = "visible";
-          el.style.height = "auto";
-        });
+    // Slicing: paginamos sólo el Main; el Tail va siempre al fondo de la última PDF page.
+    const pixelsPerPoint = mainCanvas.width / pdfW;
+    const mainCanvasH = mainCanvas.height;
+    const pdfPageHPx = Math.ceil(usableH * pixelsPerPoint);
+    const padPx = Math.round(pdfPageHPx * 0.05);
 
-        // Reemplazar inputs con spans
-        cloneEl.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
-          if (input.type === "date") {
-            input.style.opacity = "0";
-            input.style.position = "absolute";
-            return;
+    // Convertir break points de CSS px a canvas px (multiplicando por scale=2)
+    const cssToCanvas = mainCanvas.width / A4_WIDTH_PX;
+    const breakPoints = breakPointsCss.map((y) => Math.round(y * cssToCanvas)).sort((a, b) => a - b);
+
+    type PdfPageSlice = { srcY: number; srcH: number; drawY: number };
+    const pageSlices: PdfPageSlice[] = [];
+    if (mainCanvasH <= pdfPageHPx) {
+      pageSlices.push({ srcY: 0, srcH: mainCanvasH, drawY: 0 });
+    } else {
+      let consumed = 0;
+      let isFirst = true;
+      while (consumed < mainCanvasH) {
+        const topPad = isFirst ? 0 : padPx;
+        const remaining = mainCanvasH - consumed;
+        if (remaining <= pdfPageHPx - topPad) {
+          pageSlices.push({ srcY: consumed, srcH: remaining, drawY: topPad });
+          consumed = mainCanvasH;
+        } else {
+          const maxCut = consumed + (pdfPageHPx - topPad - padPx);
+          // Snap al break point más alto en (consumed, maxCut]
+          let snapped = maxCut;
+          for (let k = breakPoints.length - 1; k >= 0; k--) {
+            if (breakPoints[k] > consumed && breakPoints[k] <= maxCut) {
+              snapped = breakPoints[k];
+              break;
+            }
           }
-          const span = cloneDoc.createElement("span");
-          span.textContent = input.value || "";
-          span.className = input.className;
-          input.parentNode?.replaceChild(span, input);
-        });
+          pageSlices.push({ srcY: consumed, srcH: snapped - consumed, drawY: topPad });
+          consumed = snapped;
+        }
+        isFirst = false;
+      }
+    }
 
-        // Ocultar botones interactivos
-        cloneEl.querySelectorAll<HTMLElement>("button").forEach((btn) => {
-          btn.style.display = "none";
-        });
+    // Escalar tail al ancho de la página
+    const tailDrawW = mainCanvas.width;
+    const tailDrawH = Math.round(tailCanvas.height * (tailDrawW / tailCanvas.width));
+    const tailDrawY = pdfPageHPx - tailDrawH;
 
-        // Los textareas ya están ocultos (display:none) en el DOM real;
-        // sus divs reemplazantes también están clonados → no hace falta nada más.
-      },
-    });
-
-    // ── Paso 3: restaurar el DOM real ──
-    taReplacements.forEach(({ ta, div }) => {
-      ta.style.display = "";
-      div.parentNode?.removeChild(div);
-    });
-
-    // Usar cloneContentH (altura real post-transformaciones) para calcular páginas
-    const pixelsPerPoint = canvas.width / pdfW;
-    const contentPdfH = cloneContentH * (pdfW / A4_WIDTH_PX);
-    const rawPageCount = Math.max(1, Math.ceil(contentPdfH / usableH));
-    const lastPageContent = contentPdfH - (rawPageCount - 1) * usableH;
-    const pageCount = rawPageCount > 1 && lastPageContent < 30 ? rawPageCount - 1 : rawPageCount;
-
-    // effectiveCanvasH: píxeles del canvas que corresponden al contenido real
-    const effectiveCanvasH = Math.round(cloneContentH * pixelsPerPoint);
-
-    for (let i = 0; i < pageCount; i++) {
+    for (let i = 0; i < pageSlices.length; i++) {
       if (i > 0) pdf.addPage();
-      const srcY = Math.floor(i * usableH * pixelsPerPoint);
-      const srcH = Math.min(
-        Math.ceil(usableH * pixelsPerPoint),
-        effectiveCanvasH - srcY,
-      );
+      const { srcY, srcH, drawY } = pageSlices[i];
+      const isLast = i === pageSlices.length - 1;
       const pageCanvas = document.createElement("canvas");
-      pageCanvas.width = canvas.width;
-      pageCanvas.height = Math.ceil(usableH * pixelsPerPoint);
+      pageCanvas.width = mainCanvas.width;
+      pageCanvas.height = pdfPageHPx;
       const ctx = pageCanvas.getContext("2d");
       if (ctx) {
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = "#d6d6cc";
         ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-        ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+        ctx.drawImage(mainCanvas, 0, srcY, mainCanvas.width, srcH, 0, drawY, mainCanvas.width, srcH);
+        if (isLast) {
+          ctx.drawImage(tailCanvas, 0, 0, tailCanvas.width, tailCanvas.height, 0, tailDrawY, tailDrawW, tailDrawH);
+        }
       }
       pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, pageMarginPx, pdfW, usableH);
     }
 
     return pdf.output("datauristring").split(",")[1];
+  }
+
+  async function handleSearchThreads(): Promise<void> {
+    setThreadLoading(true);
+    setThreadSearchError("");
+    setThreadResults([]);
+    setSelectedThread(null);
+    try {
+      const res = await fetch(`/api/microsoft/messages?email=${encodeURIComponent(emailTo.trim())}`);
+      const data = (await res.json()) as { messages?: EmailThread[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Error buscando hilos");
+      setThreadResults(data.messages ?? []);
+      if ((data.messages ?? []).length === 0) setThreadSearchError("No se encontraron hilos previos con este contacto.");
+    } catch (e) {
+      setThreadSearchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setThreadLoading(false);
+    }
   }
 
   async function handleSendEmail(): Promise<void> {
@@ -2235,7 +2311,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const emailRes = await fetch("/api/send-quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: emailTo, pdfBase64, customerName, subject: emailSubject, body: emailBody }),
+        body: JSON.stringify({ to: emailTo, pdfBase64, customerName, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
       });
       if (!emailRes.ok) {
         const data = (await emailRes.json()) as { error?: string };
@@ -2253,22 +2329,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
       const latamRowsById = new Map(latamRows.map((r) => [r.id, r]));
       const items = rightPaneBudgetLines.map((line) => {
-        if (line.kind === "latam") {
-          const row = latamRowsById.get(line.rowId);
-          return {
-            fieldKey: row?.fieldKey ?? line.rowId,
-            title: line.title,
-            description: line.description,
-            price: line.price,
-            source: (row?.source ?? "custom") as "json" | "custom" | "impo" | "similar",
-          };
-        }
+        const lineId = line.kind === "latam" ? line.rowId : line.id;
+        const row = line.kind === "latam" ? latamRowsById.get(line.rowId) : undefined;
+        const source = row?.source === "crate" ? "custom" : ((row?.source ?? "custom") as "json" | "custom" | "impo" | "similar");
         return {
-          fieldKey: `pet-crate-${line.petIndex}`,
+          fieldKey: row?.fieldKey ?? lineId,
           title: line.title,
           description: line.description,
           price: line.price,
-          source: "custom" as const,
+          source,
         };
       });
 
@@ -2280,7 +2349,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           origin,
           destination,
           quotedDate,
-          arrivalDate,
+          travelDate,
           animalsCount: animalCount,
           animalsDescription,
           items,
@@ -2650,16 +2719,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
         ). El panel derecho queda libre para el próximo paso.
       </p>
 
-      {[
-        suggestError,
-        quotesError,
-        crateTariffsError,
-        impoTemplatesError,
-      ].filter(Boolean).length > 0 ? (
+      {[suggestError, quotesError, crateTariffsError].filter(Boolean).length > 0 ? (
         <p className="mt-4 text-sm text-red-600">
-          {[suggestError, quotesError, crateTariffsError, impoTemplatesError]
-            .filter(Boolean)
-            .join(" · ")}
+          {[suggestError, quotesError, crateTariffsError].filter(Boolean).join(" · ")}
         </p>
       ) : null}
 
@@ -2668,13 +2730,21 @@ export default function DemoCoti01Page(): React.JSX.Element {
           className={`w-full shrink-0 ${pdfPreviewOpen ? "lg:w-1/2 lg:max-w-[50%]" : "lg:max-w-none"}`}
         >
           <form
-            className="space-y-4"
+            className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
             }}
           >
 
-            <div>
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center gap-2 border-b border-zinc-100 pb-3">
+                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" aria-hidden />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Datos del traslado
+                </h3>
+              </div>
+              <div className="space-y-4">
+              <div>
               <label htmlFor="dc02-customer" className={labelClass}>
                 Nombre del cliente
               </label>
@@ -2696,7 +2766,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       autoComplete="organization"
                       value={agentName}
                       onChange={(e) => setAgentName(e.target.value)}
-                      className={`${inputClass} w-[30%] shrink-0`}
+                      className={`${inputClass} !w-[30%] max-w-[30%] shrink-0`}
                       placeholder="Agent"
                       autoFocus
                     />
@@ -2735,7 +2805,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   }}
                   onFocus={() => setOriginOpen(true)}
                   className={inputClass}
-                  placeholder="Ej. EZE (mín. 2 caracteres para sugerencias)"
+                  placeholder="Ej. EZE"
                 />
                 {originOpen &&
                   origin.trim().length >= 2 &&
@@ -2766,7 +2836,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
               <div ref={destWrapRef} className="relative min-w-0">
                 <label htmlFor="dc02-destination" className={labelClass}>
-                  Destino (opcional)
+                  Destino
                 </label>
                 <input
                   id="dc02-destination"
@@ -2779,7 +2849,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   }}
                   onFocus={() => setDestOpen(true)}
                   className={inputClass}
-                  placeholder="Ej. MIA — sugerencias de todos los destinos en la base"
+                  placeholder="Ej. MIA"
                 />
                 {destOpen &&
                   destination.trim().length >= 2 &&
@@ -2883,24 +2953,44 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 </div>
                 <div className="min-w-0 flex-1">
                   <label htmlFor="dc02-arrival" className={labelClass}>
-                    Arrival date
+                    Travel date
                   </label>
                   <input
                     id="dc02-arrival"
                     type="date"
-                    value={arrivalDate}
-                    onChange={(e) => setArrivalDate(e.target.value)}
+                    value={travelDate}
+                    onChange={(e) => setTravelDate(e.target.value)}
                     className={inputClass}
                   />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="dc02-aerolinea" className={labelClass}>
+                    Aerolínea
+                  </label>
+                  <input
+                    id="dc02-aerolinea"
+                    type="text"
+                    value={aerolinea}
+                    onChange={(e) => setAerolinea(e.target.value)}
+                    className={inputClass}
+                    placeholder="ej. LATAM, Aerolíneas"
+                  />
+                </div>
               </div>
-             
+
+              </div>
+              </div>
             </div>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium text-zinc-700">
+
+            <div className="rounded-xl border border-emerald-200/60 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center gap-2 border-b border-emerald-100 pb-3">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
                   Mascotas
-                </p>
+                </h3>
+              </div>
+              <div className="space-y-4">
+              <div>
                 {detectedCrateCountryKey ? (
                   <p className="mt-1 text-xs text-zinc-500">
                     Jaulas según origen:{" "}
@@ -2914,58 +3004,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
                     en código o el JSON de jaulas.
                   </p>
                 ) : null}
-                {latamJaulasHint ? (
-                  <p
-                    role="note"
-                    className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-950"
-                  >
-                    <span className="font-semibold">Jaulas</span>
-                    <span className="text-amber-800">
-                      {" "}
-                      ({latamJaulasHint.label}):{" "}
-                    </span>
-                    {latamJaulasHint.jaulas}
-                  </p>
-                ) : null}
-                {latamPreEntregaHint && pets.some((p) => p.hasCrate) ? (() => {
-                  const preKey = "pre_entrega_de_la_jaula";
-                  const alreadyAdded = latamRows.some(
-                    (r) => r.source === "json" && r.fieldKey === preKey,
-                  );
-                  return (
-                    <div className="mt-2 rounded-md border border-zinc-300 bg-white p-2.5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-zinc-900">
-                            2. Pre-entrega de la jaula
-                          </p>
-                          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-600">
-                            {latamPreEntregaHint.note}
-                            <span className="ml-1 text-zinc-400">
-                              · ({latamPreEntregaHint.label})
-                            </span>
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addPreEntregaJaulaItem()}
-                          disabled={alreadyAdded}
-                          className="shrink-0 rounded border border-emerald-600/70 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label="Añadir Pre-entrega de la jaula al presupuesto"
-                        >
-                          {alreadyAdded ? "Ya agregado" : "Añadir ítem"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })() : null}
               </div>
               {pets.map((pet, i) => (
                 <div
                   key={pet.id}
-                  className="rounded-lg border border-zinc-300 p-3"
+                  className="rounded-lg border border-emerald-200/60 bg-emerald-50/20 p-4 shadow-sm"
                 >
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                     Mascota {i + 1}
                   </p>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -3061,7 +3106,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             </button>
                           </div>
                           {(() => {
-                            const danger = isDangerBreed(pet.raza);
+                            const danger = isDangerBreed(pet.raza, breeds);
                             const optsForPet = filterCrateOptionsForPet(
                               crateOptionsForOrigin,
                               pet.tipo,
@@ -3143,7 +3188,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       </div>
                     )}
                   </div>
-                  {isBrachyBreed(pet.raza) && (
+                  {isBrachyBreed(pet.raza, breeds) && (
                     <p className="mt-2 flex items-center gap-1.5 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0" aria-hidden>
                         <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
@@ -3153,8 +3198,19 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       Atención: esta mascota es braquiocefálica
                     </p>
                   )}
+                  {isDangerBreed(pet.raza, breeds) && (
+                    <p className="mt-2 flex items-center gap-1.5 rounded-md bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0" aria-hidden>
+                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                      Raza peligrosa — jaula LAR82
+                    </p>
+                  )}
                 </div>
               ))}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -3171,13 +3227,21 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 onClick={() =>
                   setSimilarQuotesTableOpen((open) => !open)
                 }
-                className="w-full rounded-md border border-zinc-300 bg-zinc-50 py-[2px] text-center text-[12px] font-medium leading-tight text-zinc-800 transition hover:bg-zinc-100"
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-[12px] font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-800"
                 aria-expanded={similarQuotesTableOpen}
                 aria-controls="dc02-similar-quotes-table"
               >
-                {`Ver cotizaciones similares (${
-                  loadingQuotes ? "…" : quotes.length
-                })`}
+                <span>Cotizaciones similares</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] tabular-nums text-zinc-500">
+                    {loadingQuotes ? "…" : quotes.length}
+                  </span>
+                  <span
+                    className="inline-block text-[9px] leading-none text-zinc-400 transition-transform duration-150"
+                    style={{ transform: similarQuotesTableOpen ? "rotate(90deg)" : "rotate(0deg)" }}
+                    aria-hidden
+                  >▶</span>
+                </span>
               </button>
               {similarQuotesTableOpen ? (
               <div className="relative z-10 w-[90vw] max-w-[90vw] self-start">
@@ -3392,28 +3456,22 @@ export default function DemoCoti01Page(): React.JSX.Element {
             <div className="flex flex-col gap-3">
               {(tradeDirection === "impo" || tradeDirection === "ambas") ? (
             <div
-              className="rounded-lg border border-sky-300 bg-sky-50/70 p-3"
+              className="rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2"
               aria-label="Templates IMPO por destino"
             >
               <button
                 type="button"
                 id="dc02-impo-guide-toggle"
-                className="flex w-full items-start justify-between gap-2 rounded-md py-1 text-left transition hover:bg-sky-100/60"
+                className="flex w-full items-center justify-between gap-2 py-0.5 text-left transition"
                 onClick={() => setImpoGuidePanelOpen((o) => !o)}
                 aria-expanded={impoGuidePanelOpen}
                 aria-controls="dc02-impo-guide-body"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-sky-900">
-                    IMPO — mercado de importación (destino)
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
-                    Templates y líneas según el destino elegido (mismo criterio
-                    que antes en este bloque).
-                  </span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-sky-700">
+                  IMPO — items
                 </span>
                 <span
-                  className="mt-0.5 inline-block shrink-0 text-[10px] leading-none text-zinc-500 transition-transform duration-150"
+                  className="inline-block shrink-0 text-[9px] leading-none text-sky-400 transition-transform duration-150"
                   style={{
                     transform: impoGuidePanelOpen
                       ? "rotate(90deg)"
@@ -3427,128 +3485,82 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
               {impoGuidePanelOpen ? (
               <div id="dc02-impo-guide-body" className="mt-2">
-              {impoTemplatesLoading ? (
-                <p className="mt-2 text-xs text-zinc-500">Buscando templates…</p>
+              {officialLoading ? (
+                <p className="mt-2 text-xs text-zinc-500">Buscando ítems…</p>
               ) : null}
-              {!impoTemplatesLoading &&
-              destination.trim().length >= 2 &&
-              impoTemplates.length === 0 ? (
+              {!officialLoading && destination.trim().length >= 2 && !officialImpoItems ? (
                 <p className="mt-2 text-xs text-zinc-500">
-                  Ningún template IMPO coincide con este destino.
+                  Ningún ítem IMPO coincide con este destino.
                 </p>
               ) : null}
-              {impoTemplates.length > 0 ? (
-                <ul className="mt-3 space-y-3">
-                  {impoTemplates.map((tpl) => {
-                    const hasPendingImpoLine = tpl.quoted_items.some(
-                      (it, idx) => {
-                        if (!it.label.trim()) return false;
-                        const fk = `impo_${tpl.title}_${it.item_number ?? "u"}_${idx}`;
-                        return !latamRows.some(
-                          (r) => r.source === "impo" && r.fieldKey === fk,
+              {officialImpoItems && officialImpoItems.length > 0 ? (() => {
+                const aeropuertos = [...new Set(officialImpoItems.map((i) => i.airport))];
+                return (
+                  <>
+                    <p className="mt-2 text-xs text-zinc-600">
+                      País:{" "}
+                      <span className="font-medium text-zinc-800">{officialImpoMatchedPais}</span>
+                    </p>
+                    <div className="mt-3 space-y-3">
+                      {aeropuertos.map((aero) => {
+                        const items = officialImpoItems.filter((i) => i.airport === aero);
+                        const canAddAeroAll = items.some(
+                          (i) => !latamRows.some((r) => r.source === "impo" && r.fieldKey === `official_impo_${i.id}`),
                         );
-                      },
-                    );
-                    return (
-                    <li
-                      key={tpl.file_name}
-                      className="rounded-md border border-zinc-300 bg-white p-3"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-zinc-900">
-                            {tpl.title}
-                          </p>
-                          <p className="font-mono text-[11px] text-zinc-500">
-                            {tpl.file_name}
-                            {tpl.animal_count != null
-                              ? ` · ${tpl.animal_count} pet(s)`
-                              : ""}
-                            {tpl.location ? ` · ${tpl.location}` : ""}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addImpoTemplateItems(tpl)}
-                          disabled={
-                            tpl.quoted_items.length === 0 || !hasPendingImpoLine
-                          }
-                          className="shrink-0 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
-                        >
-                          Agregar todos
-                        </button>
-                      </div>
-                      {tpl.quoted_items.length > 0 ? (
-                        <ul className="mt-2 space-y-3 border-t border-zinc-300 pt-2 text-xs">
-                          {tpl.quoted_items.map((it, qIdx) => {
-                            const cust = impoCustomerTextForQuotedItem(it, tpl);
-                            const impoFk = `impo_${tpl.title}_${it.item_number ?? "u"}_${qIdx}`;
-                            const impoLineInBudget = latamRows.some(
-                              (r) => r.source === "impo" && r.fieldKey === impoFk,
-                            );
-                            return (
-                            <li
-                              key={`${tpl.file_name}-${it.item_number ?? "n"}-${qIdx}`}
-                              className="text-zinc-700"
-                            >
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap gap-x-2">
-                                    <span className="font-mono text-zinc-400">
-                                      {it.item_number != null
-                                        ? `${it.item_number}.`
-                                        : "—"}
-                                    </span>
-                                    <span className="min-w-0 flex-1">
-                                      {it.label}
-                                    </span>
-                                    {it.amount != null ? (
-                                      <span className="shrink-0 tabular-nums">
-                                        {it.amount}
+                        return (
+                          <div key={aero ?? "sin-aero"} className="rounded border border-zinc-200 bg-white px-3 py-2">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              {aero ? (
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-sky-700">
+                                  {aero}
+                                </p>
+                              ) : <span />}
+                              <button
+                                type="button"
+                                onClick={() => addImpoItemsForAirport(aero)}
+                                disabled={!canAddAeroAll}
+                                className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-white disabled:opacity-40"
+                              >
+                                + todos
+                              </button>
+                            </div>
+                            <ul className="space-y-1">
+                              {items.map((item) => {
+                                const key = `official_impo_${item.id}`;
+                                const inBudget = latamRows.some(
+                                  (r) => r.source === "impo" && r.fieldKey === key,
+                                );
+                                return (
+                                  <li key={item.id} className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <span className="text-[11px] text-zinc-700">
+                                        {item.item_es || item.item_en}
                                       </span>
-                                    ) : null}
-                                  </div>
-                                  {cust.trim() !== "" ? (
-                                    <p className="mt-1 whitespace-pre-wrap text-[10px] leading-snug text-zinc-500 sm:pl-6">
-                                      {cust}
-                                    </p>
-                                  ) : null}
-                                  {it.note?.trim() ? (
-                                    <p className="mt-0.5 font-mono text-[10px] text-amber-700/90 sm:pl-6">
-                                      Nota interna: {it.note}
-                                    </p>
-                                  ) : null}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    addImpoTemplateItem(tpl, qIdx)
-                                  }
-                                  disabled={!it.label.trim() || impoLineInBudget}
-                                  className="shrink-0 rounded border border-emerald-600/70 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-                                  aria-label={`Añadir al presupuesto: ${it.label.trim() || "ítem"}`}
-                                >
-                                  {impoLineInBudget ? "Ya agregado" : "Añadir ítem"}
-                                </button>
-                              </div>
-                            </li>
-                            );
-                          })}
-                        </ul>
-                      ) : (
-                        <p className="mt-2 text-[11px] text-zinc-500">
-                          Sin líneas en{" "}
-                          <code className="rounded bg-zinc-100 px-0.5">
-                            quoted_items
-                          </code>{" "}
-                          (revisá descripciones u otro sheet en el fuente).
-                        </p>
-                      )}
-                    </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
+                                      {(item.price_ref ?? item.notes) ? (
+                                        <span className="ml-2 font-mono text-[10px] text-zinc-400">
+                                          {[item.price_ref, item.notes].filter(Boolean).join(" · ")}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => addOfficialImpoItem(item)}
+                                      disabled={inBudget}
+                                      className="shrink-0 rounded border border-emerald-600/60 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      {inBudget ? "✓" : "+"}
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })() : null}
               </div>
               ) : null}
             </div>
@@ -3562,19 +3574,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
               <button
                 type="button"
                 id="dc02-expo-guide-toggle"
-                className="flex w-full items-start justify-between gap-2 rounded-md py-1 text-left transition hover:bg-violet-100/60"
+                className="flex w-full items-center justify-between gap-2 py-0.5 text-left transition"
                 onClick={() => setExpoGuidePanelOpen((o) => !o)}
                 aria-expanded={expoGuidePanelOpen}
                 aria-controls="dc02-expo-guide-body"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-violet-900">
-                    EXPO — guía de ítems por origen (JSON LATAM)
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
-                    Misma referencia que en el select &quot;Elegí qué
-                    agregar&quot;: clave, título y nota interna completa.
-                  </span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-violet-700">
+                  EXPO — items
                 </span>
                 <span
                   className="mt-0.5 inline-block shrink-0 text-[10px] leading-none text-zinc-500 transition-transform duration-150"
@@ -3596,35 +3602,30 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   Escribí un <span className="font-medium">origen</span> que
                   coincida con un país en la guía EXPO.
                 </p>
-              ) : expoLoading ? (
+              ) : officialLoading ? (
                 <p className="mt-2 text-xs text-zinc-400">Cargando…</p>
-              ) : !latamProfitFields ? (
+              ) : !officialExpoMatchedPais ? (
                 <p className="mt-2 text-xs text-zinc-500">
                   Este origen no coincide con ningún país en la guía EXPO.
                 </p>
-              ) : latamProfitFields.fields.length === 0 ? (
+              ) : officialExpoItemsForPanel.length === 0 ? (
                 <p className="mt-2 text-xs text-zinc-500">
-                  No hay ítems (además de jaulas) para este país en el JSON.
+                  No hay ítems para este país.
                 </p>
               ) : (
                 <>
                   <p className="mt-2 text-xs text-zinc-600">
-                    País / referencia:{" "}
+                    País:{" "}
                     <span className="font-medium text-zinc-800">
-                      {latamProfitFields.label}
-                    </span>{" "}
-                    <span className="font-mono text-[10px] text-zinc-400">
-                      ({latamProfitFields.countryKey})
+                      {officialExpoMatchedPais}
                     </span>
                   </p>
                   {(() => {
                     const usedJsonKeys = new Set(
-                      latamRows
-                        .filter((r) => r.source === "json")
-                        .map((r) => r.fieldKey),
+                      latamRows.filter((r) => r.source === "json").map((r) => r.fieldKey),
                     );
-                    const canAddAnyJson = latamProfitFields.fields.some(
-                      (f) => !usedJsonKeys.has(f.key),
+                    const canAddAnyJson = officialExpoItemsForPanel.some(
+                      (item) => !usedJsonKeys.has(`official_expo_${item.id}`),
                     );
                     return (
                       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -3638,45 +3639,40 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         </button>
                         {!canAddAnyJson ? (
                           <span className="text-[10px] text-zinc-500">
-                            Todos los ítems de la guía ya están en el presupuesto.
+                            Todos los ítems ya están en el presupuesto.
                           </span>
                         ) : null}
                       </div>
                     );
                   })()}
-                  <ul className="mt-3 space-y-3">
-                    {latamProfitFields.fields.map((f) => {
-                      const jsonAlreadyAdded = latamRows.some(
-                        (r) => r.source === "json" && r.fieldKey === f.key,
+                  <ul className="mt-3 space-y-1">
+                    {officialExpoItemsForPanel.map((item) => {
+                      const itemKey = `official_expo_${item.id}`;
+                      const alreadyAdded = latamRows.some(
+                        (r) => r.source === "json" && r.fieldKey === itemKey,
                       );
                       return (
-                      <li
-                        key={f.key}
-                        className="rounded-md border border-zinc-300 bg-white p-3"
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                        <li key={item.id} className="flex items-center justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-zinc-900">
-                              {latamJsonFieldTitle(f.key)}
-                            </p>
-                            <p className="font-mono text-[10px] text-zinc-500">
-                              {f.key}
-                            </p>
-                            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-700">
-                              {f.clarification}
-                            </p>
+                            <span className="text-[11px] text-zinc-700">
+                              {item.item_es || item.item_en}
+                            </span>
+                            {(item.price_ref ?? item.notes) ? (
+                              <span className="ml-2 font-mono text-[10px] text-zinc-400">
+                                {[item.price_ref, item.notes].filter(Boolean).join(" · ")}
+                              </span>
+                            ) : null}
                           </div>
                           <button
                             type="button"
-                            onClick={() => addLatamJsonRow(f.key)}
-                            disabled={jsonAlreadyAdded}
-                            className="shrink-0 rounded border border-emerald-600/70 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-                            aria-label={`Añadir ${latamJsonFieldTitle(f.key)} al presupuesto`}
+                            onClick={() => addLatamJsonRow(itemKey)}
+                            disabled={alreadyAdded}
+                            className="shrink-0 rounded border border-emerald-600/60 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label={`Añadir ${item.item_es || item.item_en} al presupuesto`}
                           >
-                            {jsonAlreadyAdded ? "Ya agregado" : "Añadir ítem"}
+                            {alreadyAdded ? "✓" : "+"}
                           </button>
-                        </div>
-                      </li>
+                        </li>
                       );
                     })}
                   </ul>
@@ -3698,15 +3694,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
             <div className="space-y-6">
               {!origin.trim() ? (
-                <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs leading-relaxed text-amber-950">
-                  <span className="font-medium">Sin origen</span> no aparecen
-                  los campos del JSON por país. Podés sumar{" "}
-                  <span className="font-medium">líneas personalizadas</span> en
-                  “Agregar al presupuesto”. Si elegís origen, se ofrecen ítems
-                  desde la guía EXPO por país.
+                <p className="text-[11px] text-zinc-400">
+                  Elegí un origen para ver ítems EXPO por país.
                 </p>
               ) : null}
-              {origin.trim() && !expoLoading && !latamProfitFields ? (
+              {origin.trim() && !officialLoading && !officialExpoMatchedPais ? (
                 <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-relaxed text-zinc-600">
                   Este origen no coincide con ningún país en la guía EXPO;
                   igual podés sumar líneas personalizadas o plantillas IMPO más
@@ -3927,7 +3919,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                 value={row.price}
                                 onChange={(e) =>
                                   updateLatamRow(row.id, {
-                                    price: e.target.value,
+                                    price: e.target.value.replace(/[^0-9.,]/g, ""),
                                   })
                                 }
                                 className={`${inputClass} tabular-nums`}
@@ -3935,7 +3927,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                               />
                             </div>
                           </div>
-                          {row.source === "impo" || row.source === "similar" ? (
+                          {row.source === "crate" ? (
+                            <p className="font-mono text-[10px] text-amber-600/70">
+                              Crate · vinculado a mascota
+                            </p>
+                          ) : row.source === "impo" || row.source === "similar" ? (
                             <p className="font-mono text-[10px] text-zinc-400">
                               {row.source === "impo" ? "IMPO · " : "Similar · "}
                               {row.fieldKey}
@@ -3961,6 +3957,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                               placeholder="Texto para el ítem / cotización"
                             />
                           </div>
+                          {row.source !== "crate" ? (
                           <div>
                             <p className={fieldLabelClass}>Nota interna</p>
                             <p className="text-[11px] leading-relaxed text-zinc-500">
@@ -3968,14 +3965,25 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                 ? row.internalNote
                                 : "—"}
                             </p>
-                            <p className="mt-1 text-[10px] text-zinc-400">
-                              Referencia del JSON / operativa; solo lectura.
-                            </p>
+                            {row.priceRef ? (
+                              <p className="mt-1 font-mono text-[10px] text-zinc-400">
+                                Precio ref.: {row.priceRef}
+                              </p>
+                            ) : null}
+
                           </div>
+                          ) : null}
                         </div>
                         <button
                           type="button"
-                          onClick={() => removeLatamRow(row.id)}
+                          onClick={() => {
+                            if (row.source === "crate" && row.petId) {
+                              const petIndex = pets.findIndex((p) => p.id === row.petId);
+                              if (petIndex >= 0) removeCrateFromPet(petIndex);
+                            } else {
+                              removeLatamRow(row.id);
+                            }
+                          }}
                           className="mt-7 shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700 sm:mt-8"
                           aria-label={`Quitar ${row.title}`}
                           title="Eliminar fila"
@@ -4213,316 +4221,22 @@ export default function DemoCoti01Page(): React.JSX.Element {
         >
           <div
             id="dc02-right-pane"
-            className="h-fit w-full rounded-[20px] border border-zinc-300 bg-white py-[10%] px-[7%] shadow-[0_4px_28px_rgba(15,23,42,0.1)]"
+            className="h-fit w-full rounded-[20px] border border-zinc-300 bg-white shadow-[0_4px_28px_rgba(15,23,42,0.1)]"
           >
-            <div
-              id="dc02-pdf-content"
-              className="box-border flex min-h-[1050px] w-full flex-col px-[5%] py-6"
-            >
-            <div className="flex min-h-0 flex-1 flex-col">
-            <div className="relative w-full">
-              <Image
-                src={headerBanner}
-                alt="LATAM Pet Transport — Pet relocation across Latin America"
-                className="h-auto w-full object-contain object-left"
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                priority
-              />
-            </div>
-
-            <div
-              className="mt-3 grid w-full grid-flow-col grid-cols-2 grid-rows-3 gap-x-4 gap-y-1 rounded-lg px-5 pt-2 pb-5"
-              style={{ backgroundColor: "#f0f0f0", colorScheme: "light" }}
-            >
-              <div className="min-w-0 flex flex-col gap-px">
-                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  {agentName.trim() ? "Customer - Agent" : "Customer"}
-                </span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <span className={`${pdfFieldTextClass} pointer-events-none select-text`}>
-                    {customerName.trim() || agentName.trim()
-                      ? [customerName.trim(), agentName.trim()].filter(Boolean).join(" - ") || "—"
-                      : "—"}
-                  </span>
-                </div>
-              </div>
-              <div className="min-w-0 flex flex-col gap-px">
-                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Origin
-                </span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <input
-                    type="text"
-                    value={origin}
-                    onChange={(e) => setOrigin(e.target.value)}
-                    className={pdfFieldTextClass}
-                    placeholder="—"
-                    autoComplete="off"
-                    aria-label="Origin"
-                  />
-                </div>
-              </div>
-              <div className="min-w-0 flex flex-col gap-px">
-                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Destination
-                </span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <input
-                    type="text"
-                    value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
-                    className={pdfFieldTextClass}
-                    placeholder="—"
-                    autoComplete="off"
-                    aria-label="Destination"
-                  />
-                </div>
-              </div>
-              <div className="min-w-0 flex flex-col gap-px">
-                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Quotation date
-                </span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
-                    <input
-                      type="date"
-                      value={quotedDate}
-                      onChange={(e) => setQuotedDate(e.target.value)}
-                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${quotedDate ? "opacity-0" : ""}`}
-                      aria-label="Quotation date"
-                    />
-                    {quotedDate ? (
-                      <span className="pointer-events-none absolute inset-0 flex items-center text-[12px] leading-tight text-zinc-950">
-                        {formatIsoDateAsSpanishLong(quotedDate)}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-              <div className="min-w-0 flex flex-col gap-px">
-                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Trip date
-                </span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
-                    <input
-                      type="date"
-                      value={arrivalDate}
-                      onChange={(e) => setArrivalDate(e.target.value)}
-                      className={`${pdfFieldTextClass} absolute inset-0 h-5 w-full appearance-none ${arrivalDate ? "" : "opacity-0"}`}
-                      aria-label="Trip date"
-                    />
-                    {!arrivalDate ? (
-                      <span className="pointer-events-none absolute inset-0 flex items-center text-[12px] leading-tight text-zinc-950">
-                        Not confirmed
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-              <div className="min-w-0 flex flex-col gap-px">
-                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Pets
-                </span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <UserFieldIcon className="h-[14px] w-[14px] shrink-0 text-[#cdb073]" />
-                  <span className="break-words text-[12px] leading-tight text-zinc-950">
-                    {formatAnimalsLine(animalCount, pets)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div
-              className="mt-3 w-full"
-              role="region"
-              aria-label="Presupuesto — ítems"
-            >
-              <div className="w-full">
-                {rightPaneBudgetLines.length === 0 ? (
-                  <p className="text-[11px] leading-tight text-zinc-600">
-                    Sin líneas de presupuesto (referencia LATAM o costo por
-                    mascota).
-                  </p>
-                ) : (
-                  rightPaneBudgetLines.map((line) => (
-                    <div
-                      key={line.id}
-                      className="group/pdf-budget-row border-b border-zinc-300 pt-1 pb-2"
-                    >
-                      <div className="flex items-baseline justify-between gap-1">
-                        <div className="min-w-0 flex-1 pr-1">
-                          {line.kind === "latam" ? (
-                            <input
-                              type="text"
-                              value={line.title}
-                              onChange={(e) =>
-                                updateLatamRow(line.rowId, {
-                                  title: e.target.value,
-                                })
-                              }
-                              className={`${pdfFieldTextClass} font-medium`}
-                              placeholder="—"
-                              aria-label={`Título ítem ${line.rowId}`}
-                            />
-                          ) : (
-                            <div className="text-[11px] font-medium leading-tight text-zinc-950">
-                              {line.title}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 items-baseline gap-0.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              line.kind === "latam"
-                                ? removeLatamRow(line.rowId)
-                                : removePetAtBudgetIndex(line.petIndex)
-                            }
-                            className="shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/pdf-budget-row:opacity-100 group-focus-within/pdf-budget-row:opacity-100"
-                            title="Eliminar línea"
-                            aria-label={
-                              line.kind === "latam"
-                                ? `Eliminar del presupuesto: ${line.title}`
-                                : `Quitar mascota ${line.petIndex + 1} del presupuesto`
-                            }
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="h-3.5 w-3.5"
-                              aria-hidden
-                            >
-                              <path d="M3 6h18" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                              <line x1="10" x2="10" y1="11" y2="17" />
-                              <line x1="14" x2="14" y1="11" y2="17" />
-                            </svg>
-                          </button>
-                          <div className="flex shrink-0 items-baseline justify-end gap-1">
-                            <span
-                              className="shrink-0 font-mono text-[11px] font-medium uppercase tracking-wide text-zinc-500"
-                              aria-hidden
-                            >
-                              USD
-                            </span>
-                            {line.kind === "latam" ? (
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={line.price}
-                                onChange={(e) =>
-                                  updateLatamRow(line.rowId, {
-                                    price: e.target.value,
-                                  })
-                                }
-                                className={pdfFieldMonoClass}
-                                placeholder="—"
-                                aria-label={`Precio USD ítem ${line.rowId}`}
-                              />
-                            ) : (
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={line.price}
-                                onChange={(e) =>
-                                  updatePet(line.petIndex, {
-                                    costo: e.target.value,
-                                  })
-                                }
-                                className={pdfFieldMonoClass}
-                                placeholder="—"
-                                aria-label={`Costo USD jaula mascota ${line.petIndex + 1}`}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="min-w-0 pr-1">
-                        {line.kind === "latam" ? (
-                          <AutoHeightDescriptionTextarea
-                            value={resolvePlaceholders(line.description, placeholderCtx)}
-                            onChange={(e) =>
-                              updateLatamRow(line.rowId, {
-                                description: e.target.value,
-                              })
-                            }
-                            minHeightPx={34}
-                            className={pdfFieldDescClass}
-                            placeholder=" "
-                            aria-label={`Descripción ítem ${line.rowId}`}
-                          />
-                        ) : line.description.trim() !== "" ? (
-                          <p className="mt-px whitespace-pre-wrap text-[10px] leading-snug text-zinc-700">
-                            {resolvePlaceholders(line.description, placeholderCtx)}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))
-                )}
-                <div className="flex flex-row items-baseline justify-between gap-2 pt-1.5">
-                  <span className="text-[13px] font-semibold uppercase tracking-wide text-zinc-800">
-                    Total
-                  </span>
-                  <span className="flex shrink-0 items-baseline justify-end gap-1 text-right font-mono text-[13px] font-semibold tabular-nums text-zinc-950">
-                    <span
-                      className="text-[11px] font-medium uppercase tracking-wide text-zinc-500"
-                      aria-hidden
-                    >
-                      USD
-                    </span>
-                    {rightPaneBudgetTotal.toLocaleString("en-US", {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
-              </div>
-            </div>
-            </div>
-
-            <div id="dc02-pdf-footer" className="mt-auto pt-4">
-              <hr
-                className="mb-3 border-0 border-t border-dashed border-zinc-300"
-                aria-hidden
-              />
-              <div>
-                <p className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Conditions of contract
-                </p>
-                <textarea
-                  value={disclaimerContract}
-                  onChange={(e) => setDisclaimerContract(e.target.value)}
-                  rows={5}
-                  className={pdfDisclaimerAreaClass}
-                  aria-label="Conditions of contract"
-                />
-              </div>
-              <div className="pt-2">
-                <p className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-800">
-                  Contact
-                </p>
-                <textarea
-                  value={disclaimerContact}
-                  onChange={(e) => setDisclaimerContact(e.target.value)}
-                  rows={3}
-                  className={pdfDisclaimerAreaClass}
-                  aria-label="Contact"
-                />
-              </div>
-            </div>{/* end dc02-pdf-content */}
-          </div>
+            <QuotePrintLayout
+              data={printData}
+              callbacks={{
+                onCustomerNameChange: setCustomerName,
+                onAgentNameChange: setAgentName,
+                onOriginChange: setOrigin,
+                onDestinationChange: setDestination,
+                onQuotedDateChange: setQuotedDate,
+                onTravelDateChange: setTravelDate,
+                onBudgetLineChange: updateLatamRow,
+                onDisclaimerContractChange: setDisclaimerContract,
+                onRemoveBudgetLine: removeLatamRow,
+              }}
+            />
           </div>
         </section>
         ) : null}
@@ -4744,12 +4458,100 @@ export default function DemoCoti01Page(): React.JSX.Element {
                     <input
                       type="email"
                       value={emailTo}
-                      onChange={(e) => setEmailTo(e.target.value)}
+                      onChange={(e) => {
+                        setEmailTo(e.target.value);
+                        if (selectedThread) {
+                          setSelectedThread(null);
+                          setEmailSubject(customerName.trim() ? `Cotización LATAM Pet Transport — ${customerName.trim()}` : "Cotización LATAM Pet Transport");
+                        }
+                        setThreadResults([]);
+                        setThreadSearchError("");
+                      }}
                       placeholder="cliente@ejemplo.com"
                       className={inputClass}
                       disabled={emailSending}
                       autoFocus
                     />
+                  </div>
+
+                  {/* Responder a mail anterior */}
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <label className="text-xs font-medium text-zinc-700">
+                        Responder a mail anterior
+                        <span className="ml-1 font-normal text-zinc-400">(opcional)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleSearchThreads()}
+                        disabled={
+                          emailSending ||
+                          threadLoading ||
+                          !emailTo.trim() ||
+                          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTo.trim()) ||
+                          !outlookStatus?.connected
+                        }
+                        className="rounded-md border border-zinc-300 px-2.5 py-1 text-[11px] font-medium text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {threadLoading ? "Buscando…" : "Buscar mails"}
+                      </button>
+                    </div>
+
+                    {selectedThread ? (
+                      <div className="flex items-start justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-blue-900">{selectedThread.subject}</p>
+                          <p className="mt-0.5 text-blue-600">
+                            {new Date(selectedThread.receivedDateTime).toLocaleDateString("es-AR", {
+                              day: "2-digit", month: "short", year: "numeric",
+                            })}
+                            {" · de: "}
+                            {selectedThread.from.emailAddress.name || selectedThread.from.emailAddress.address}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedThread(null);
+                            setThreadResults([]);
+                            setEmailSubject(customerName.trim() ? `Cotización LATAM Pet Transport — ${customerName.trim()}` : "Cotización LATAM Pet Transport");
+                          }}
+                          disabled={emailSending}
+                          className="shrink-0 text-blue-400 hover:text-blue-600 disabled:opacity-50"
+                          aria-label="Quitar mail seleccionado"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : threadResults.length > 0 ? (
+                      <div className="rounded-lg border border-zinc-200 bg-zinc-50">
+                        {threadResults.map((thread, idx) => (
+                          <button
+                            key={thread.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedThread(thread);
+                              setThreadResults([]);
+                              const reSubject = thread.subject?.trim() || "";
+                              setEmailSubject(reSubject.toLowerCase().startsWith("re:") ? reSubject : `Re: ${reSubject}`);
+                            }}
+                            disabled={emailSending}
+                            className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-xs transition hover:bg-zinc-100 disabled:opacity-50 ${idx > 0 ? "border-t border-zinc-200" : ""}`}
+                          >
+                            <span className="truncate font-medium text-zinc-800">{thread.subject || "(sin asunto)"}</span>
+                            <span className="text-zinc-500">
+                              {new Date(thread.receivedDateTime).toLocaleDateString("es-AR", {
+                                day: "2-digit", month: "short", year: "numeric",
+                              })}
+                              {" · de: "}
+                              {thread.from.emailAddress.name || thread.from.emailAddress.address}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : threadSearchError ? (
+                      <p className="text-[11px] text-zinc-400">{threadSearchError}</p>
+                    ) : null}
                   </div>
 
                   <div>
@@ -4760,8 +4562,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       type="text"
                       value={emailSubject}
                       onChange={(e) => setEmailSubject(e.target.value)}
-                      className={inputClass}
+                      className={`${inputClass} ${selectedThread ? "cursor-not-allowed bg-zinc-50 text-zinc-500" : ""}`}
                       disabled={emailSending}
+                      readOnly={!!selectedThread}
                     />
                   </div>
 
