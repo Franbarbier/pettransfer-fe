@@ -33,7 +33,8 @@ export function toFormulaKey(itemEn: string): string {
 }
 
 /** Normaliza nombre de país a clave de fórmula. Ej: "Costa Rica" → "costa_rica" */
-export function toCountryKey(country: string): string {
+export function toCountryKey(country: string | null | undefined): string {
+  if (!country) return "";
   return country
     .toLowerCase()
     .normalize("NFD")

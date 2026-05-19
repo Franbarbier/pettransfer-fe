@@ -61,9 +61,10 @@ Normaliza el nombre en inglés del ítem a clave de fórmula:
 - elimina caracteres no alfanuméricos
 - reemplaza espacios con `_`
 
-### `toCountryKey(country: string): string`
+### `toCountryKey(country: string | null | undefined): string`
 
 Normaliza el nombre del país: lowercase + strip acentos + espacios → `_`.
+Devuelve `""` si recibe `null`/`undefined`/string vacío (los ítems "huérfanos" tienen `country = NULL`).
 
 ---
 
@@ -72,3 +73,60 @@ Normaliza el nombre del país: lowercase + strip acentos + espacios → `_`.
 1. Agregar la entrada en `FORMULAS` dentro de `expoItemPriceFormulas.ts`, usando como key `toFormulaKey(item_en)` del ítem correspondiente en la tabla `items_official`.
 2. Usar `tiered(...prices)` para precios escalonados por cantidad de mascotas, o `perPet(price)` para precio × mascota.
 3. No hace falta tocar `demo-coti/page.tsx` — `resolveOfficialPrice` lo levanta automáticamente.
+
+---
+
+# Condiciones dinámicas del cotizador
+
+Archivo: `fe/src/lib/quoteConditions.ts`
+
+Cuando cambia operación / origen / destino, se evalúan condiciones declarativas que pueden **remover** ítems del presupuesto y **agregar** otros (típicamente ítems "huérfanos" con `operation_type = NULL` en `items_official`).
+
+Cada condición declara:
+- `id` — string único kebab-case.
+- `match(ctx)` — función pura sobre `{ operation, origin, destination }` que devuelve `true` cuando aplica.
+- `removeItemUuids` — UUIDs de `items_official` a remover del presupuesto si están presentes.
+- `addItemUuids` — UUIDs a agregar (resueltos contra `officialOrphanItems`).
+
+La aplicación es automática: se integra con el auto-add EXPO en `demo-coti/page.tsx` vía `matchedConditionsSig`, que entra como parte de la firma del effect. Cuando cambia el destino y la condición deja de matchear, los ítems vuelven al estado por defecto.
+
+El usuario puede agregar manualmente los ítems removidos si lo necesita — las condiciones no ocultan opciones del panel "Sugerencias", solo afectan el contenido inicial del presupuesto.
+
+> **Al agregar una condición nueva, anotarla acá abajo además de en el archivo.**
+
+## Condiciones activas
+
+### `expo-arg-oceania-sudafrica-tramites-sanitarios`
+
+**Aplica cuando**: operación EXPO (o ambas) + origen Argentina + destino en Oceanía o Sudáfrica.
+
+**Remueve** (Argentina EXPO):
+- RNATT (`9ca241f0-8a06-453e-b9aa-c31c84c9c884`)
+- Veterinary Fees (`f7ec58b1-0d6d-4b2f-917c-d8a64710c657`)
+- International Travel Certificate (`d1dddc97-4bd5-4ba7-aaae-6ac128ee4f6f`)
+
+**Agrega** (orphan):
+- Trámites sanitarios (`3cbf6b78-450e-4f0c-aaee-31c5f44eb0d7`) — el campo `notes` contiene una URL de Dropbox con la info para cotizar. La URL se renderiza como hipervínculo gracias al componente `LinkifiedText`.
+
+Países considerados Oceanía: ver `OCEANIA_COUNTRIES` en `fe/src/lib/countryGroups.ts`.
+
+### `expo-panama-legalizacion-consular`
+
+**Aplica cuando**: operación EXPO (o ambas) + destino Panamá (cualquier origen).
+
+**Remueve**: nada.
+
+**Agrega** (orphan):
+- Legalización consular (`11a041bf-7e5c-4938-aa6c-d0425c288996`)
+
+### `expo-arg-latam-usa-eu-international-health-certificate`
+
+**Aplica cuando**: operación EXPO (o ambas) + origen Argentina + destino en LATAM (sin Argentina), Norteamérica (USA/Canadá/Puerto Rico) o Unión Europea.
+
+Países cubiertos: ver `LATAM_NON_ARG`, `NORTH_AMERICA` y `EU_COUNTRIES` en `fe/src/lib/countryGroups.ts` y helper `destIsLatamNonArgUsaCanadaEU`.
+
+**Remueve** (Argentina EXPO):
+- Veterinary Fees (`f7ec58b1-0d6d-4b2f-917c-d8a64710c657`) — referido como "vet check" por el equipo.
+
+**Agrega** (orphan):
+- International Health Certificate (`c2eb0178-12e3-4a0d-853d-40f26de4cbf0`) — el campo `notes` contiene un Google Sheets con la tabla de precios por destino. Se renderiza como hipervínculo vía `LinkifiedText`.

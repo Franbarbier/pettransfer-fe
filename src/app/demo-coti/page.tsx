@@ -30,6 +30,8 @@ import {
 import { BreedCombobox } from "@/components/BreedCombobox";
 import { useBreeds } from "@/hooks/useBreeds";
 import { useItemsOfficial, type OfficialItem } from "@/hooks/useItemsOfficial";
+import { quoteConditions, type TradeDirectionChoice } from "@/lib/quoteConditions";
+import { LinkifiedText } from "@/components/linkified-text";
 import {
   computeExpoItemPrice,
   toCountryKey,
@@ -140,12 +142,16 @@ function formatIsoDateAsSpanishLong(iso: string): string {
   return `${SPANISH_MONTHS_LONG[month - 1]} ${day}, ${year}`;
 }
 
+const CUSTOM_CRATE_ID = "__custom_crate__";
+
 type PetRow = {
   id: string;
   tipo: "" | "perro" | "gato";
   raza: string;
   nombre: string;
   crateId: string;
+  /** Tamaño libre cuando crateId === CUSTOM_CRATE_ID. */
+  customCrateSize: string;
   costo: string;
   /**
    * Si `true`, esta mascota viaja con crate cotizado (se muestra el selector
@@ -309,6 +315,7 @@ function emptyPet(): PetRow {
     raza: "",
     nombre: "",
     crateId: "",
+    customCrateSize: "",
     costo: "",
     hasCrate: false,
   };
@@ -320,6 +327,8 @@ type LatamFieldRow = {
   source: "json" | "custom" | "impo" | "similar" | "transito" | "crate";
   /** Clave JSON (`vet_fees`) o id único para filas custom. */
   fieldKey: string;
+  /** UUID estable del ítem en items_official (cuando aplica). */
+  officialUuid?: string;
   title: string;
   price: string;
   /** Texto de ítem / al cliente. */
@@ -381,6 +390,7 @@ type RightPaneBudgetLine =
     };
 
 const LATAM_CUSTOM_SELECT_VALUE = "__custom__";
+const LATAM_ORPHAN_CREATE_VALUE = "__orphan_create__";
 
 function newLatamRowId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -535,7 +545,6 @@ function AutoHeightDescriptionTextarea({
   );
 }
 
-type TradeDirectionChoice = "impo" | "expo" | "ambas" | "transito";
 
 export default function DemoCoti01Page(): React.JSX.Element {
   const [origin, setOrigin] = useState("");
@@ -605,6 +614,17 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [latamCustomTitle, setLatamCustomTitle] = useState("");
   const [latamCustomDesc, setLatamCustomDesc] = useState("");
   const [latamCustomPrice, setLatamCustomPrice] = useState("");
+  const [officialItemModalOpen, setOfficialItemModalOpen] = useState(false);
+  const [officialItemEn, setOfficialItemEn] = useState("");
+  const [officialItemEs, setOfficialItemEs] = useState("");
+  const [officialPriceRef, setOfficialPriceRef] = useState("");
+  const [officialDescEn, setOfficialDescEn] = useState("");
+  const [officialDescEs, setOfficialDescEs] = useState("");
+  const [officialNotes, setOfficialNotes] = useState("");
+  const [officialAirport, setOfficialAirport] = useState("");
+  const [officialCountry, setOfficialCountry] = useState("");
+  const [officialSubmitting, setOfficialSubmitting] = useState(false);
+  const [officialError, setOfficialError] = useState<string | null>(null);
   const [dragRowIndex, setDragRowIndex] = useState<number | null>(null);
   const [dragOverRowIndex, setDragOverRowIndex] = useState<number | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<
@@ -875,9 +895,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const {
     officialExpoItems,
     officialImpoItems,
+    officialOrphanItems,
     officialExpoMatchedPais,
     officialImpoMatchedPais,
     officialLoading,
+    refetchOfficial,
   } = useItemsOfficial(tradeDirection, debouncedOrigin, debouncedDest);
 
   const officialExpoItemsForPanel = useMemo(() => {
@@ -887,12 +909,45 @@ export default function DemoCoti01Page(): React.JSX.Element {
     );
   }, [officialExpoItems]);
 
+  const matchedConditions = useMemo(
+    () =>
+      quoteConditions.filter((c) =>
+        c.match({
+          operation: tradeDirection,
+          origin: debouncedOrigin,
+          destination: debouncedDest,
+        }),
+      ),
+    [tradeDirection, debouncedOrigin, debouncedDest],
+  );
+
+  const conditionRemoveUuids = useMemo(
+    () => new Set(matchedConditions.flatMap((c) => c.removeItemUuids)),
+    [matchedConditions],
+  );
+
+  const conditionAddUuids = useMemo(
+    () => matchedConditions.flatMap((c) => c.addItemUuids),
+    [matchedConditions],
+  );
+
+  const matchedConditionsSig = useMemo(
+    () => matchedConditions.map((c) => c.id).sort().join(","),
+    [matchedConditions],
+  );
+
   useEffect(() => {
     setLatamCustomFormOpen(false);
     setLatamCustomTitle("");
     setLatamCustomDesc("");
-    setLatamRows((prev) => prev.filter((r) => r.source !== "json"));
-  }, [officialExpoMatchedPais]);
+    setLatamRows((prev) =>
+      prev.filter(
+        (r) =>
+          r.source !== "json" &&
+          !(r.source === "custom" && r.fieldKey.startsWith("condition_")),
+      ),
+    );
+  }, [officialExpoMatchedPais, matchedConditionsSig]);
 
   const latamJsonOptionsToAdd = useMemo(() => {
     if (!officialExpoItemsForPanel.length) return [];
@@ -907,6 +962,69 @@ export default function DemoCoti01Page(): React.JSX.Element {
         internalNotePreview: [item.price_ref, item.notes].filter(Boolean).join(" · "),
       }));
   }, [officialExpoItemsForPanel, latamRows]);
+
+  const latamImpoOptionsToAdd = useMemo(() => {
+    if (!officialImpoItems?.length) return [];
+    const usedImpo = new Set(
+      latamRows.filter((r) => r.source === "impo").map((r) => r.fieldKey),
+    );
+    return officialImpoItems
+      .filter((item) => !usedImpo.has(`official_impo_${item.id}`))
+      .map((item) => ({
+        key: `official_impo_${item.id}`,
+        title: item.item_es || item.item_en,
+        internalNotePreview: [item.airport, item.price_ref, item.notes].filter(Boolean).join(" · "),
+      }));
+  }, [officialImpoItems, latamRows]);
+
+  const latamTransitoOptionsToAdd = useMemo(() => {
+    if (tradeDirection !== "transito") return [];
+    const transitLabel = transitCountry === "argentina" ? "Argentina" : "Chile";
+    const all = [
+      {
+        key: "transito_reception",
+        title: "Reception and assistance during connection flights",
+        price: "USD 350",
+        description: "",
+        internalNote: "",
+        internalNotePreview: "USD 350",
+      },
+      {
+        key: `transito_cargo_${transitCountry}`,
+        title: `Cargo freight ${transitLabel} - ${destination}`,
+        price: "",
+        description: "",
+        internalNote: "proveedor + USD 1.000",
+        internalNotePreview: "proveedor + USD 1.000",
+      },
+      {
+        key: "transito_latam_fees",
+        title: "LATAM Pet Transport fees",
+        price: "USD 350",
+        description: "",
+        internalNote: "",
+        internalNotePreview: "USD 350",
+      },
+    ];
+    const usedTransito = new Set(
+      latamRows.filter((r) => r.source === "transito").map((r) => r.fieldKey),
+    );
+    return all.filter((opt) => !usedTransito.has(opt.key));
+  }, [tradeDirection, transitCountry, destination, latamRows]);
+
+  const latamOrphanOptionsToAdd = useMemo(() => {
+    if (!officialOrphanItems.length) return [];
+    const usedOrphan = new Set(
+      latamRows.filter((r) => r.source === "custom").map((r) => r.fieldKey),
+    );
+    return officialOrphanItems
+      .filter((item) => !usedOrphan.has(`orphan_${item.id}`))
+      .map((item) => ({
+        key: `orphan_${item.id}`,
+        title: item.item_es || item.item_en,
+        internalNotePreview: [item.country, item.price_ref, item.notes].filter(Boolean).join(" · "),
+      }));
+  }, [officialOrphanItems, latamRows]);
 
   function removeLatamRow(rowId: string): void {
     setLatamRows((prev) => prev.filter((r) => r.id !== rowId));
@@ -1134,6 +1252,50 @@ export default function DemoCoti01Page(): React.JSX.Element {
           id: newLatamRowId(),
           source: "impo",
           fieldKey: key,
+          officialUuid: item.uuid,
+          title: item.item_es || item.item_en,
+          price,
+          description: item.description_es ?? item.description_en ?? "",
+          internalNote: item.notes ?? "",
+          priceRef,
+        },
+      ];
+    });
+  }
+
+  function addTransitoOption(transitoKey: string): void {
+    const opt = latamTransitoOptionsToAdd.find((o) => o.key === transitoKey);
+    if (!opt) return;
+    setLatamRows((prev) => {
+      if (prev.some((r) => r.source === "transito" && r.fieldKey === transitoKey)) return prev;
+      return [
+        ...prev,
+        {
+          id: newLatamRowId(),
+          source: "transito",
+          fieldKey: transitoKey,
+          title: opt.title,
+          price: opt.price,
+          description: opt.description,
+          internalNote: opt.internalNote,
+        },
+      ];
+    });
+  }
+
+  function addOrphanItem(orphanKey: string): void {
+    const item = officialOrphanItems.find((i) => `orphan_${i.id}` === orphanKey);
+    if (!item) return;
+    setLatamRows((prev) => {
+      if (prev.some((r) => r.source === "custom" && r.fieldKey === orphanKey)) return prev;
+      const { price, priceRef } = resolveOfficialPrice(item);
+      return [
+        ...prev,
+        {
+          id: newLatamRowId(),
+          source: "custom",
+          fieldKey: orphanKey,
+          officialUuid: item.uuid,
           title: item.item_es || item.item_en,
           price,
           description: item.description_es ?? item.description_en ?? "",
@@ -1162,6 +1324,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           id: newLatamRowId(),
           source: "impo",
           fieldKey: key,
+          officialUuid: item.uuid,
           title: item.item_es || item.item_en,
           price,
           description: item.description_es ?? item.description_en ?? "",
@@ -1189,6 +1352,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
             id: newLatamRowId(),
             source: "json" as const,
             fieldKey: jsonKey,
+            officialUuid: item.uuid,
             title: item.item_es || item.item_en,
             price,
             description: item.description_es ?? item.description_en ?? "",
@@ -1207,8 +1371,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const usedJson = new Set(
         prev.filter((r) => r.source === "json").map((r) => r.fieldKey),
       );
+      const usedConditionUuids = new Set(
+        prev
+          .filter((r) => r.source === "custom" && r.fieldKey.startsWith("condition_"))
+          .map((r) => r.officialUuid)
+          .filter((u): u is string => !!u),
+      );
       const newRows: LatamFieldRow[] = [];
       for (const item of officialExpoItemsForPanel) {
+        if (conditionRemoveUuids.has(item.uuid)) continue;
         const key = `official_expo_${item.id}`;
         if (usedJson.has(key)) continue;
         usedJson.add(key);
@@ -1217,6 +1388,25 @@ export default function DemoCoti01Page(): React.JSX.Element {
           id: newLatamRowId(),
           source: "json",
           fieldKey: key,
+          officialUuid: item.uuid,
+          title: item.item_es || item.item_en,
+          price,
+          description: item.description_es ?? item.description_en ?? "",
+          internalNote: item.notes ?? "",
+          priceRef,
+        });
+      }
+      for (const uuid of conditionAddUuids) {
+        if (usedConditionUuids.has(uuid)) continue;
+        const item = officialOrphanItems.find((i) => i.uuid === uuid);
+        if (!item) continue;
+        usedConditionUuids.add(uuid);
+        const { price, priceRef } = resolveOfficialPrice(item);
+        newRows.push({
+          id: newLatamRowId(),
+          source: "custom",
+          fieldKey: `condition_${uuid}`,
+          officialUuid: uuid,
           title: item.item_es || item.item_en,
           price,
           description: item.description_es ?? item.description_en ?? "",
@@ -1227,7 +1417,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       if (newRows.length === 0) return prev;
       return [...prev, ...newRows];
     });
-  }, [officialExpoItemsForPanel]);
+  }, [officialExpoItemsForPanel, conditionRemoveUuids, conditionAddUuids, officialOrphanItems]);
 
   function submitLatamCustom(): void {
     const t = latamCustomTitle.trim();
@@ -1248,6 +1438,57 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setLatamCustomDesc("");
     setLatamCustomPrice("");
     setLatamCustomFormOpen(false);
+  }
+
+  function officialItemBtnLabel(): string {
+    return "Crear ítem personalizado";
+  }
+
+  function openOfficialItemModal(): void {
+    setOfficialItemEn("");
+    setOfficialItemEs("");
+    setOfficialPriceRef("");
+    setOfficialDescEn("");
+    setOfficialDescEs("");
+    setOfficialNotes("");
+    setOfficialAirport("");
+    setOfficialCountry("");
+    setOfficialError(null);
+    setOfficialItemModalOpen(true);
+  }
+
+  async function submitOfficialItem(): Promise<void> {
+    if (!officialItemEn.trim() && !officialItemEs.trim()) return;
+    setOfficialSubmitting(true);
+    setOfficialError(null);
+    try {
+      const base = getApiBaseUrl().replace(/\/$/, "");
+      const resp = await fetch(`${base}/items-official`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operation_type: null,
+          airport: officialAirport.trim() || null,
+          country: officialCountry.trim() || null,
+          item_en: officialItemEn.trim(),
+          item_es: officialItemEs.trim(),
+          price_ref: officialPriceRef.trim() || null,
+          description_en: officialDescEn.trim() || null,
+          description_es: officialDescEs.trim() || null,
+          notes: officialNotes.trim() || null,
+        }),
+      });
+      if (!resp.ok) {
+        const err = (await resp.json()) as { error?: string };
+        throw new Error(err.error ?? `Error ${resp.status}`);
+      }
+      refetchOfficial();
+      setOfficialItemModalOpen(false);
+    } catch (e: unknown) {
+      setOfficialError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOfficialSubmitting(false);
+    }
   }
 
   /**
@@ -1295,6 +1536,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           id: newLatamRowId(),
           source: "impo",
           fieldKey: key,
+          officialUuid: item.uuid,
           title: item.item_es || item.item_en,
           price,
           description: item.description_es ?? item.description_en ?? "",
@@ -1313,11 +1555,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
       autoAddedExpoSigRef.current = null;
       return;
     }
-    const sig = officialExpoMatchedPais ?? "";
+    const sig = `${officialExpoMatchedPais ?? ""}|${matchedConditionsSig}`;
     if (autoAddedExpoSigRef.current === sig) return;
     autoAddedExpoSigRef.current = sig;
     addAllLatamJsonGuideItems();
-  }, [addAllLatamJsonGuideItems, officialExpoItemsForPanel, officialExpoMatchedPais, tradeDirection]);
+  }, [addAllLatamJsonGuideItems, officialExpoItemsForPanel, officialExpoMatchedPais, tradeDirection, matchedConditionsSig]);
 
   useEffect(() => {
     if (tradeDirection !== "transito") {
@@ -1445,18 +1687,23 @@ export default function DemoCoti01Page(): React.JSX.Element {
         let defaultDesc: string;
         let price: string;
         if (hasCrateSelected) {
-          const crate = crateOptionsForOrigin.find((c) => c.id === p.crateId);
-          const cratePart = crate
-            ? [
-                crate.size_code,
-                crate.pet_scope,
-                crate.measures_cm ? `${crate.measures_cm} cm` : null,
-                crate.weight_vol_kg ? `vol. ${crate.weight_vol_kg} kg` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            : "";
-          defaultDesc = [p.raza.trim(), cratePart].filter(Boolean).join(" · ");
+          const isCustom = p.crateId === CUSTOM_CRATE_ID;
+          const crate = isCustom ? null : crateOptionsForOrigin.find((c) => c.id === p.crateId);
+          if (isCustom) {
+            defaultDesc = p.customCrateSize.trim();
+          } else {
+            const cratePart = crate
+              ? [
+                  crate.size_code,
+                  crate.pet_scope,
+                  crate.measures_cm ? `${crate.measures_cm} cm` : null,
+                  crate.weight_vol_kg ? `vol. ${crate.weight_vol_kg} kg` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "";
+            defaultDesc = [p.raza.trim(), cratePart].filter(Boolean).join(" · ");
+          }
           price = p.costo;
         } else {
           defaultDesc = "Client will provide";
@@ -1470,7 +1717,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           syncedCrateId: p.crateId,
           title: `Crate · ${tipoLabel} · ${name}`,
           price,
-          description: existing && !crateIdChanged ? existing.description : defaultDesc,
+          description: (p.crateId === CUSTOM_CRATE_ID) || !existing || crateIdChanged ? defaultDesc : existing.description,
           internalNote: "",
         });
       }
@@ -1518,13 +1765,21 @@ export default function DemoCoti01Page(): React.JSX.Element {
       ...new Set(
         activePets
           .filter((p) => p.hasCrate && p.crateId)
-          .map((p) => crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? "")
+          .map((p) =>
+            p.crateId === CUSTOM_CRATE_ID
+              ? p.customCrateSize.trim()
+              : (crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? ""),
+          )
           .filter(Boolean),
       ),
     ];
     const allSizes = activePets
       .filter((p) => p.hasCrate && p.crateId)
-      .map((p) => crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? "")
+      .map((p) =>
+        p.crateId === CUSTOM_CRATE_ID
+          ? p.customCrateSize.trim()
+          : (crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? ""),
+      )
       .filter(Boolean);
     const formatSize = (s: string) => (/^\d/.test(s) ? `#${s}` : s);
 
@@ -1920,7 +2175,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
     const activePets = pets.slice(0, Math.min(animalCount, pets.length));
     const crateSizes = activePets
       .filter((p) => p.hasCrate && p.crateId)
-      .map((p) => crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? "")
+      .map((p) =>
+        p.crateId === CUSTOM_CRATE_ID
+          ? p.customCrateSize.trim()
+          : (crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? ""),
+      )
       .filter(Boolean);
     const cratesStr = crateSizes.map((s) => `#${s}`).join("");
 
@@ -3113,13 +3372,14 @@ export default function DemoCoti01Page(): React.JSX.Element {
                               danger,
                             );
                             return (
+                              <>
                               <select
                                 id={`dc02-pet-${i}-crate`}
                                 value={pet.crateId}
                                 onChange={(e) => {
                                   const id = e.target.value;
                                   const costo =
-                                    id === ""
+                                    id === "" || id === CUSTOM_CRATE_ID
                                       ? ""
                                       : defaultCostoFromCrateSelection(
                                           crateTariffsData,
@@ -3144,7 +3404,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                     {formatCrateOptionLabel(c)}
                                   </option>
                                 ))}
+                                <option value={CUSTOM_CRATE_ID}>
+                                  Personalizado
+                                </option>
                               </select>
+                            </>
                             );
                           })()}
                         </div>
@@ -3168,6 +3432,19 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             placeholder="Ej. 270 USD"
                           />
                         </div>
+                        {pet.crateId === CUSTOM_CRATE_ID && (
+                          <div className="col-span-2 sm:col-span-3 lg:col-span-5">
+                            <AutoHeightDescriptionTextarea
+                              value={pet.customCrateSize}
+                              onChange={(e) =>
+                                updatePet(i, { customCrateSize: e.target.value })
+                              }
+                              minHeightPx={64}
+                              className={`${inputClass} font-sans`}
+                              placeholder="Medidas/notas de la jaula personalizada"
+                            />
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div className="col-span-2 sm:col-span-1 lg:col-span-2">
@@ -3960,11 +4237,14 @@ export default function DemoCoti01Page(): React.JSX.Element {
                           {row.source !== "crate" ? (
                           <div>
                             <p className={fieldLabelClass}>Nota interna</p>
-                            <p className="text-[11px] leading-relaxed text-zinc-500">
-                              {row.internalNote.trim() !== ""
-                                ? row.internalNote
-                                : "—"}
-                            </p>
+                            {row.internalNote.trim() !== "" ? (
+                              <LinkifiedText
+                                text={row.internalNote}
+                                className="text-[11px] leading-relaxed text-zinc-500"
+                              />
+                            ) : (
+                              <p className="text-[11px] leading-relaxed text-zinc-500">—</p>
+                            )}
                             {row.priceRef ? (
                               <p className="mt-1 font-mono text-[10px] text-zinc-400">
                                 Precio ref.: {row.priceRef}
@@ -4037,30 +4317,143 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   </header>
                   <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-start gap-2">
-                    <div className="min-w-0 flex-1 space-y-1">
+                    {tradeDirection === "expo" || tradeDirection === "ambas" ? (
+                      <div className="space-y-1" style={{ width: "30%" }}>
+                        <label
+                          htmlFor="dc02-latam-add-select-expo"
+                          className={fieldLabelClass}
+                        >
+                          EXPO
+                        </label>
+                        <select
+                          id="dc02-latam-add-select-expo"
+                          key={`latam-add-expo-${latamRows.map((r) => r.id).join("-")}-cf${latamCustomFormOpen ? "1" : "0"}`}
+                          defaultValue=""
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === LATAM_CUSTOM_SELECT_VALUE) {
+                              setLatamCustomFormOpen(true);
+                              return;
+                            }
+                            if (v) addLatamJsonRow(v);
+                          }}
+                          className={`${inputClass} bg-white/95`}
+                          aria-label="Agregar ítem EXPO"
+                        >
+                          <option value="">Elegí campo EXPO…</option>
+                          {latamJsonOptionsToAdd.map((opt) => (
+                            <option
+                              key={opt.key}
+                              value={opt.key}
+                              title={`${opt.title}\n\nNota interna (ref.):\n${opt.internalNotePreview}`}
+                            >
+                              {opt.title} —{" "}
+                              {truncateForOption(opt.internalNotePreview, 85)}
+                            </option>
+                          ))}
+                          <option value={LATAM_CUSTOM_SELECT_VALUE}>
+                            + Campo personalizado (título y descripción propios)
+                          </option>
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {tradeDirection === "impo" || tradeDirection === "ambas" ? (
+                      <div className="space-y-1" style={{ width: "30%" }}>
+                        <label
+                          htmlFor="dc02-latam-add-select-impo"
+                          className={fieldLabelClass}
+                        >
+                          IMPO
+                        </label>
+                        <select
+                          id="dc02-latam-add-select-impo"
+                          key={`latam-add-impo-${latamRows.map((r) => r.id).join("-")}`}
+                          defaultValue=""
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            const item = officialImpoItems?.find(
+                              (i) => `official_impo_${i.id}` === v,
+                            );
+                            if (item) addOfficialImpoItem(item);
+                          }}
+                          className={`${inputClass} bg-white/95`}
+                          aria-label="Agregar ítem IMPO"
+                        >
+                          <option value="">Elegí campo IMPO…</option>
+                          {latamImpoOptionsToAdd.map((opt) => (
+                            <option
+                              key={opt.key}
+                              value={opt.key}
+                              title={`${opt.title}\n\nNota interna (ref.):\n${opt.internalNotePreview}`}
+                            >
+                              {opt.title} —{" "}
+                              {truncateForOption(opt.internalNotePreview, 85)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {tradeDirection === "transito" ? (
+                      <div className="space-y-1" style={{ width: "30%" }}>
+                        <label
+                          htmlFor="dc02-latam-add-select-transito"
+                          className={fieldLabelClass}
+                        >
+                          Tránsito
+                        </label>
+                        <select
+                          id="dc02-latam-add-select-transito"
+                          key={`latam-add-transito-${latamRows.map((r) => r.id).join("-")}`}
+                          defaultValue=""
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v) addTransitoOption(v);
+                          }}
+                          className={`${inputClass} bg-white/95`}
+                          aria-label="Agregar ítem tránsito"
+                        >
+                          <option value="">Elegí campo tránsito…</option>
+                          {latamTransitoOptionsToAdd.map((opt) => (
+                            <option
+                              key={opt.key}
+                              value={opt.key}
+                              title={`${opt.title}\n\nNota interna (ref.):\n${opt.internalNotePreview}`}
+                            >
+                              {opt.title} —{" "}
+                              {truncateForOption(opt.internalNotePreview, 85)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    <div className="space-y-1" style={{ width: "30%" }}>
                       <label
-                        htmlFor="dc02-latam-add-select"
+                        htmlFor="dc02-latam-add-select-orphan"
                         className={fieldLabelClass}
                       >
-                        Elegí qué agregar
+                        Item personalizado
                       </label>
                       <select
-                        id="dc02-latam-add-select"
-                        key={`latam-add-${latamRows.map((r) => r.id).join("-")}-cf${latamCustomFormOpen ? "1" : "0"}`}
+                        id="dc02-latam-add-select-orphan"
+                        key={`latam-add-orphan-${latamRows.map((r) => r.id).join("-")}`}
                         defaultValue=""
                         onChange={(e) => {
                           const v = e.target.value;
-                          if (v === LATAM_CUSTOM_SELECT_VALUE) {
-                            setLatamCustomFormOpen(true);
+                          if (v === LATAM_ORPHAN_CREATE_VALUE) {
+                            openOfficialItemModal();
                             return;
                           }
-                          if (v) addLatamJsonRow(v);
+                          if (v) addOrphanItem(v);
                         }}
                         className={`${inputClass} bg-white/95`}
-                        aria-label="Agregar campo de referencia"
+                        aria-label="Agregar ítem personalizado"
                       >
-                        <option value="">Elegí campo…</option>
-                        {latamJsonOptionsToAdd.map((opt) => (
+                        <option value="">Elegí ítem personalizado…</option>
+                        {latamOrphanOptionsToAdd.map((opt) => (
                           <option
                             key={opt.key}
                             value={opt.key}
@@ -4070,16 +4463,16 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             {truncateForOption(opt.internalNotePreview, 85)}
                           </option>
                         ))}
-                        <option value={LATAM_CUSTOM_SELECT_VALUE}>
-                          + Campo personalizado (título y descripción propios)
+                        <option value={LATAM_ORPHAN_CREATE_VALUE}>
+                          + Crear uno
                         </option>
                       </select>
-                      <p className="text-[11px] text-emerald-900/55">
-                        Resumen de la nota interna; el tooltip muestra el texto
-                        completo.
-                      </p>
                     </div>
                   </div>
+                  <p className="text-[11px] text-emerald-900/55">
+                    Resumen de la nota interna; el tooltip muestra el texto
+                    completo.
+                  </p>
 
                   {latamCustomFormOpen ? (
                     <div className="rounded-lg border border-emerald-200/90 bg-white/90 p-3 shadow-sm">
@@ -4165,6 +4558,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm"
                           >
                             Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openOfficialItemModal()}
+                            className="px-1 py-1.5 text-sm text-emerald-700 underline"
+                          >
+                            {officialItemBtnLabel()}
                           </button>
                         </div>
                       </div>
@@ -4627,6 +5027,138 @@ export default function DemoCoti01Page(): React.JSX.Element {
             </div>
           </div>
         </>
+      ) : null}
+
+      {officialItemModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setOfficialItemModalOpen(false); }}
+        >
+          <div className="w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl" style={{ maxHeight: "90dvh" }}>
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+              <h2 className="text-sm font-semibold text-zinc-900">
+                {officialItemBtnLabel()}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setOfficialItemModalOpen(false)}
+                className="rounded p-1 text-zinc-400 hover:text-zinc-700"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={fieldLabelClass}>Título (EN)</label>
+                  <input
+                    type="text"
+                    value={officialItemEn}
+                    onChange={(e) => setOfficialItemEn(e.target.value)}
+                    className={inputClass}
+                    placeholder="English title"
+                  />
+                </div>
+                <div>
+                  <label className={fieldLabelClass}>Título (ES)</label>
+                  <input
+                    type="text"
+                    value={officialItemEs}
+                    onChange={(e) => setOfficialItemEs(e.target.value)}
+                    className={inputClass}
+                    placeholder="Título en español"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Precio de referencia</label>
+                <input
+                  type="text"
+                  value={officialPriceRef}
+                  onChange={(e) => setOfficialPriceRef(e.target.value)}
+                  className={`${inputClass} tabular-nums`}
+                  placeholder="Ej. 150 USD"
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Descripción (EN)</label>
+                <AutoHeightDescriptionTextarea
+                  value={officialDescEn}
+                  onChange={(e) => setOfficialDescEn(e.target.value)}
+                  minHeightPx={64}
+                  className={`${inputClass} font-sans`}
+                  placeholder="English description"
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Descripción (ES)</label>
+                <AutoHeightDescriptionTextarea
+                  value={officialDescEs}
+                  onChange={(e) => setOfficialDescEs(e.target.value)}
+                  minHeightPx={64}
+                  className={`${inputClass} font-sans`}
+                  placeholder="Descripción en español"
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Notas internas</label>
+                <AutoHeightDescriptionTextarea
+                  value={officialNotes}
+                  onChange={(e) => setOfficialNotes(e.target.value)}
+                  minHeightPx={48}
+                  className={`${inputClass} font-sans`}
+                  placeholder="Notas para uso interno"
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Aeropuerto (código IATA, opcional)</label>
+                <input
+                  type="text"
+                  value={officialAirport}
+                  onChange={(e) => setOfficialAirport(e.target.value.toUpperCase())}
+                  className={inputClass}
+                  placeholder="Ej. EZE"
+                  maxLength={10}
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>País (opcional)</label>
+                <input
+                  type="text"
+                  value={officialCountry}
+                  onChange={(e) => setOfficialCountry(e.target.value)}
+                  className={inputClass}
+                  placeholder="País (opcional)"
+                />
+              </div>
+              {officialError ? (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{officialError}</p>
+              ) : null}
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setOfficialItemModalOpen(false)}
+                  disabled={officialSubmitting}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitOfficialItem()}
+                  disabled={
+                    officialSubmitting ||
+                    (!officialItemEn.trim() && !officialItemEs.trim())
+                  }
+                  className="rounded-lg bg-emerald-700 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {officialSubmitting ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : null}
     </main>
   );
