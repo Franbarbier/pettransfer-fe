@@ -21,6 +21,7 @@ import {
   defaultCrateIdForCat,
   defaultCrateIdForDanger,
   filterCrateOptionsForPet,
+  formatCrateDescription,
   formatCrateOptionLabel,
   getCrateOptionsForOrigin,
   isBrachyBreed,
@@ -34,6 +35,7 @@ import { quoteConditions, type TradeDirectionChoice } from "@/lib/quoteCondition
 import { LinkifiedText } from "@/components/linkified-text";
 import {
   computeExpoItemPrice,
+  computeImpoItemPrice,
   toCountryKey,
   toFormulaKey,
   type ExpoItemPriceCtx,
@@ -1229,9 +1231,17 @@ export default function DemoCoti01Page(): React.JSX.Element {
       dogs: activePets.filter((p) => p.tipo === "perro").length,
       cats: activePets.filter((p) => p.tipo === "gato").length,
     };
-    const computed = computeExpoItemPrice(toCountryKey(item.country), toFormulaKey(item.item_en), ctx);
-    if (computed !== null) {
-      return { price: computed, priceRef: item.price_ref ?? undefined };
+    if (item.operation_type === "IMPO") {
+      const computed = computeImpoItemPrice(
+        toCountryKey(item.country),
+        (item.airport ?? "").toLowerCase(),
+        toFormulaKey(item.item_en),
+        ctx,
+      );
+      if (computed !== null) return { price: computed, priceRef: item.price_ref ?? undefined };
+    } else {
+      const computed = computeExpoItemPrice(toCountryKey(item.country), toFormulaKey(item.item_en), ctx);
+      if (computed !== null) return { price: computed, priceRef: item.price_ref ?? undefined };
     }
     const pr = item.price_ref;
     if (pr?.toLowerCase().includes("siempre")) {
@@ -1625,6 +1635,33 @@ export default function DemoCoti01Page(): React.JSX.Element {
     }
   }, [tradeDirection]);
 
+  /** Actualiza precios de items oficiales con tarifas por cantidad cuando cambia animalCount. */
+  useEffect(() => {
+    setLatamRows((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        let item: OfficialItem | undefined;
+        if (row.fieldKey.startsWith("official_expo_")) {
+          const id = row.fieldKey.slice("official_expo_".length);
+          item = (officialExpoItemsForPanel ?? []).find((i) => i.id === id);
+        } else if (row.fieldKey.startsWith("official_impo_")) {
+          const id = row.fieldKey.slice("official_impo_".length);
+          item = officialImpoItems?.find((i) => i.id === id);
+        } else if (row.fieldKey.startsWith("orphan_")) {
+          const id = row.fieldKey.slice("orphan_".length);
+          item = officialOrphanItems.find((i) => i.id === id);
+        }
+        if (!item) return row;
+        const { price } = resolveOfficialPrice(item);
+        if (!price || price === row.price) return row;
+        changed = true;
+        return { ...row, price };
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animalCount]);
+
   /** Copia título, descripción (nota + detalles) y precio de un ítem de cotización similar al presupuesto PDF. */
   function addSimilarQuoteItemToPdf(q: QuoteRow, it: QuoteItemJson): void {
     const title = (it.item_name_raw || it.item_display_name || "").trim() || "Ítem";
@@ -1689,21 +1726,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
         if (hasCrateSelected) {
           const isCustom = p.crateId === CUSTOM_CRATE_ID;
           const crate = isCustom ? null : crateOptionsForOrigin.find((c) => c.id === p.crateId);
-          if (isCustom) {
-            defaultDesc = p.customCrateSize.trim();
-          } else {
-            const cratePart = crate
-              ? [
-                  crate.size_code,
-                  crate.pet_scope,
-                  crate.measures_cm ? `${crate.measures_cm} cm` : null,
-                  crate.weight_vol_kg ? `vol. ${crate.weight_vol_kg} kg` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "";
-            defaultDesc = [p.raza.trim(), cratePart].filter(Boolean).join(" · ");
-          }
+          const sizeToken = isCustom ? p.customCrateSize.trim() : (crate?.size_code ?? "");
+          defaultDesc = formatCrateDescription(sizeToken, "en");
           price = p.costo;
         } else {
           defaultDesc = "Client will provide";

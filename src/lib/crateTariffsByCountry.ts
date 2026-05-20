@@ -211,6 +211,23 @@ export function defaultCrateIdForCat(opts: CrateTariffOption[]): string {
   return "";
 }
 
+export type CrateDescriptionLang = "en" | "es";
+
+/**
+ * Texto fijo (con `size_code` interpolado) para la descripción de la línea de
+ * crate en el PDF. Mantenemos las dos versiones para cuando se agregue el
+ * selector de idioma; por ahora el llamador pasa `"en"`.
+ */
+export function formatCrateDescription(
+  sizeCode: string,
+  lang: CrateDescriptionLang = "en",
+): string {
+  const size = sizeCode.trim() || "—";
+  return lang === "es"
+    ? `LATAM Pet Transport proporcionará una jaula de ${size}.\nLa jaula cumple con la normativa IATA.`
+    : `LATAM Pet Transport will provide a ${size} travel container.\nCrate meets IATA regulations.`;
+}
+
 export function formatCrateOptionLabel(c: CrateTariffOption): string {
   const parts = [
     c.size_code,

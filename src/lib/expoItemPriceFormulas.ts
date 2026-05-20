@@ -43,7 +43,7 @@ export function toCountryKey(country: string | null | undefined): string {
 }
 
 // Keys derived from toFormulaKey(item_en) for each items_official EXPO row.
-const FORMULAS: Record<string, Record<string, PriceFormula>> = {
+const EXPO_FORMULAS: Record<string, Record<string, PriceFormula>> = {
   argentina: {
     rnatt:                                              tiered(1778, 2068, 2258),
     export_customs_clearance:                           tiered(200),
@@ -82,6 +82,55 @@ const FORMULAS: Record<string, Record<string, PriceFormula>> = {
   },
 };
 
+// IMPO formulas: countryKey → airportKey → itemKey → formula
+const IMPO_FORMULAS: Record<string, Record<string, Record<string, PriceFormula>>> = {
+  usa: {
+    mia: {
+      customs_clearance_mia_airport: tiered(575, 605, 635),
+    },
+  },
+  argentina: {
+    eze: {
+      customs_clearance_eze_airport:  tiered(1780, 2130, 2480, 2830),
+      mandatory_fixed_import_taxes:   tiered(280, 380, 450, 470),
+      home_delivery:                  tiered(180, 180, 180, 380),
+    },
+  },
+  brasil: {
+    gig: {
+      customs_clearance_gig_airport:      tiered(1110, 1140, 1200),
+      warehouse_and_airport_taxes:        tiered(120, 140, 160),
+      mandatory_import_taxes:             tiered(80, 160, 240),
+      home_delivery_metro_rio_de_janeiro: tiered(210, 210, 270),
+    },
+    gru: {
+      customs_clearance_gru_airport:      tiered(950, 980, 1010),
+      warehouse_and_airport_taxes:        tiered(170, 190, 240),
+      home_delivery_metro_so_paulo:       tiered(200, 200, 250),
+    },
+    vcp: {
+      customs_clearance_vcp_airport:      tiered(1110, 1140, 1200),
+      warehouse_and_airport_taxes:        tiered(120, 140, 160),
+      mandatory_import_taxes:             tiered(80, 160, 240),
+      home_delivery:                      tiered(220, 220, 270),
+    },
+  },
+};
+
+/**
+ * Devuelve el precio calculado para un ítem IMPO, o null si no hay fórmula.
+ * countryKey, airportKey e itemKey deben estar normalizados.
+ */
+export function computeImpoItemPrice(
+  countryKey: string,
+  airportKey: string,
+  itemKey: string,
+  ctx: ExpoItemPriceCtx,
+): string | null {
+  const result = IMPO_FORMULAS[countryKey]?.[airportKey]?.[itemKey]?.(ctx);
+  return result != null ? String(result) : null;
+}
+
 /**
  * Devuelve el precio calculado como string "USD XXX", o null si no hay fórmula para ese ítem.
  * countryKey y itemKey deben estar normalizados con toCountryKey / toFormulaKey.
@@ -91,6 +140,6 @@ export function computeExpoItemPrice(
   itemKey: string,
   ctx: ExpoItemPriceCtx,
 ): string | null {
-  const result = FORMULAS[countryKey]?.[itemKey]?.(ctx);
+  const result = EXPO_FORMULAS[countryKey]?.[itemKey]?.(ctx);
   return result != null ? String(result) : null;
 }
