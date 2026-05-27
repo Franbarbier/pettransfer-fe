@@ -14,6 +14,7 @@ type SendQuoteBody = {
   to: string;
   pdfBase64: string;
   customerName?: string;
+  filename?: string;
   subject?: string;
   body?: string;
   replyToMessageId?: string;
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body inválido" }, { status: 400 });
   }
 
-  const { to, pdfBase64, customerName, subject: customSubject, body: customBody, replyToMessageId } = body;
+  const { to, pdfBase64, customerName, filename, subject: customSubject, body: customBody, replyToMessageId } = body;
 
   if (!to || !pdfBase64) {
     return NextResponse.json(
@@ -71,9 +72,10 @@ export async function POST(req: NextRequest) {
     const { accessToken, session: refreshedSession } =
       await refreshMicrosoftAccessTokenForSession(session);
 
-    const attachmentName = customerName
-      ? `cotizacion-${customerName.replace(/\s+/g, "-")}.pdf`
-      : "cotizacion-latam-pet.pdf";
+    const attachmentName = filename?.trim()
+      || (customerName
+        ? `cotizacion-${customerName.replace(/\s+/g, "-")}.pdf`
+        : "cotizacion-latam-pet.pdf");
     const attachment = {
       "@odata.type": "#microsoft.graph.fileAttachment",
       name: attachmentName,

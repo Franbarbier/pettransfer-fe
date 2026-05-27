@@ -145,6 +145,7 @@ function formatIsoDateAsSpanishLong(iso: string): string {
 }
 
 const CUSTOM_CRATE_ID = "__custom_crate__";
+const CLIENT_CRATES_FIELD_KEY = "crate-client-provided";
 
 type PetRow = {
   id: string;
@@ -161,6 +162,13 @@ type PetRow = {
    * se cotiza crate para este animal.
    */
   hasCrate: boolean;
+  /**
+   * Solo relevante en IMPO. Indica si el operador ya decidió que hay jaula
+   * (sea provista por cliente o por LATAM). `false` = estado A "sin jaula"
+   * (no aparece la columna de crate). Cuando `hasCrate=true` se asume `true`.
+   * En EXPO se ignora — siempre hay jaula.
+   */
+  crateRegistered: boolean;
 };
 
 type QuoteItemDetailJson = {
@@ -320,6 +328,7 @@ function emptyPet(): PetRow {
     customCrateSize: "",
     costo: "",
     hasCrate: false,
+    crateRegistered: false,
   };
 }
 
@@ -612,6 +621,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [editVendedorEmail, setEditVendedorEmail] = useState("");
   const [editVendedorSubmitting, setEditVendedorSubmitting] = useState(false);
   const [latamRows, setLatamRows] = useState<LatamFieldRow[]>([]);
+  /** Claves de filas de crate excluidas explícitamente por el usuario.
+   *  Keys: petId (para crate por mascota) o CLIENT_CRATES_FIELD_KEY (fila agregada).
+   *  Si una clave está acá, el effect de sync no genera la fila correspondiente. */
+  const [excludedCrateKeys, setExcludedCrateKeys] = useState<Set<string>>(() => new Set());
   const [latamCustomFormOpen, setLatamCustomFormOpen] = useState(false);
   const [latamCustomTitle, setLatamCustomTitle] = useState("");
   const [latamCustomDesc, setLatamCustomDesc] = useState("");
@@ -937,6 +950,28 @@ export default function DemoCoti01Page(): React.JSX.Element {
     () => matchedConditions.map((c) => c.id).sort().join(","),
     [matchedConditions],
   );
+
+  // Basado en `destination` (sin debounce) para remover ítems de condición inmediatamente
+  // al cambiar de país, sin esperar los 280ms del debounce.
+  const immediateMatchedConditionsSig = useMemo(
+    () =>
+      quoteConditions
+        .filter((c) =>
+          c.match({ operation: tradeDirection, origin: debouncedOrigin, destination }),
+        )
+        .map((c) => c.id)
+        .sort()
+        .join(","),
+    [tradeDirection, debouncedOrigin, destination],
+  );
+
+  useEffect(() => {
+    setLatamRows((prev) =>
+      prev.filter(
+        (r) => !(r.source === "custom" && r.fieldKey.startsWith("condition_")),
+      ),
+    );
+  }, [immediateMatchedConditionsSig]);
 
   useEffect(() => {
     setLatamCustomFormOpen(false);
@@ -1703,51 +1738,74 @@ export default function DemoCoti01Page(): React.JSX.Element {
     [crateTariffsData, origin],
   );
 
-  /** Sincroniza ítems de crate en latamRows (siempre primeros) con el estado de mascotas. */
+  /** Sincroniza ítems de crate en latamRows (siempre primeros) con el estado de mascotas.
+   *  En IMPO el crate no se cotiza por default; solo aparece si el operador lo agrega
+   *  explícitamente (botón "+" en el panel IMPO o "Agregar crate" en el form de la mascota). */
   useEffect(() => {
     setLatamRows((prev) => {
+      const nonCrateRows = prev.filter((r) => r.source !== "crate");
+      const isImpo = tradeDirection === "impo";
       const n = Math.min(animalCount, pets.length);
       const existingByPetId = new Map<string, LatamFieldRow>();
+      let existingClientRow: LatamFieldRow | undefined;
       for (const r of prev) {
-        if (r.source === "crate" && r.petId) existingByPetId.set(r.petId, r);
+        if (r.source !== "crate") continue;
+        if (r.petId) existingByPetId.set(r.petId, r);
+        else if (r.fieldKey === CLIENT_CRATES_FIELD_KEY) existingClientRow = r;
       }
-      const nonCrateRows = prev.filter((r) => r.source !== "crate");
       const crateRows: LatamFieldRow[] = [];
+      const clientPets: { pet: PetRow; sizeToken: string }[] = [];
       for (let i = 0; i < n; i++) {
         const p = pets[i];
+        if (excludedCrateKeys.has(p.id)) continue;
         const tipoLabel =
           p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet";
         const name = p.nombre.trim() || `#${i + 1}`;
-        const existing = existingByPetId.get(p.id);
-        const crateIdChanged = existing?.syncedCrateId !== p.crateId;
-        const hasCrateSelected = p.hasCrate && !!p.crateId;
-        let defaultDesc: string;
-        let price: string;
-        if (hasCrateSelected) {
-          const isCustom = p.crateId === CUSTOM_CRATE_ID;
-          const crate = isCustom ? null : crateOptionsForOrigin.find((c) => c.id === p.crateId);
-          const sizeToken = isCustom ? p.customCrateSize.trim() : (crate?.size_code ?? "");
-          defaultDesc = formatCrateDescription(sizeToken, "en");
-          price = p.costo;
-        } else {
-          defaultDesc = "Client will provide";
-          price = "0";
+        const isCustom = p.crateId === CUSTOM_CRATE_ID;
+        const crate = isCustom ? null : crateOptionsForOrigin.find((c) => c.id === p.crateId);
+        const sizeToken = isCustom ? p.customCrateSize.trim() : (crate?.size_code ?? "");
+        if (p.hasCrate && !!p.crateId) {
+          const existing = existingByPetId.get(p.id);
+          const crateIdChanged = existing?.syncedCrateId !== p.crateId;
+          const defaultDesc = formatCrateDescription(sizeToken, "en");
+          crateRows.push({
+            id: existing?.id ?? newLatamRowId(),
+            source: "crate",
+            fieldKey: `crate-${p.id}`,
+            petId: p.id,
+            syncedCrateId: p.crateId,
+            title: `Crate · ${tipoLabel} · ${name}`,
+            price: p.costo,
+            description: isCustom || !existing || crateIdChanged ? defaultDesc : existing.description,
+            internalNote: "",
+          });
+        } else if (!isImpo || p.crateRegistered) {
+          clientPets.push({ pet: p, sizeToken });
         }
+      }
+      if (clientPets.length > 0 && !excludedCrateKeys.has(CLIENT_CRATES_FIELD_KEY)) {
+        const count = clientPets.length;
+        const sizes = clientPets.map((cp) => cp.sizeToken.trim()).filter(Boolean);
+        const noun = count === 1 ? "crate" : "crates";
+        const nounCap = count === 1 ? "Crate" : "Crates";
+        const sizesPart = sizes.length > 0 ? ` ${sizes.map((s) => `#${s}`).join(", ")}` : "";
+        const defaultDesc = `Client will provide ${count} ${noun}${sizesPart}.\n${nounCap} must meet IATA regulations.`;
+        const syncKey = `${count}|${clientPets.map((cp) => cp.sizeToken).join(",")}`;
+        const sigChanged = existingClientRow?.syncedCrateId !== syncKey;
         crateRows.push({
-          id: existing?.id ?? newLatamRowId(),
+          id: existingClientRow?.id ?? newLatamRowId(),
           source: "crate",
-          fieldKey: `crate-${p.id}`,
-          petId: p.id,
-          syncedCrateId: p.crateId,
-          title: `Crate · ${tipoLabel} · ${name}`,
-          price,
-          description: (p.crateId === CUSTOM_CRATE_ID) || !existing || crateIdChanged ? defaultDesc : existing.description,
+          fieldKey: CLIENT_CRATES_FIELD_KEY,
+          syncedCrateId: syncKey,
+          title: count === 1 ? "Crate · Cliente provee" : `Crates · Cliente provee (${count})`,
+          price: "0",
+          description: !existingClientRow || sigChanged ? defaultDesc : existingClientRow.description,
           internalNote: "",
         });
       }
       return [...crateRows, ...nonCrateRows];
     });
-  }, [pets, animalCount, crateOptionsForOrigin]);
+  }, [pets, animalCount, crateOptionsForOrigin, tradeDirection, excludedCrateKeys]);
 
   /** Vista previa PDF: ítems LATAM (crates ya incluidos primero via latamRows). */
   const rightPaneBudgetLines = useMemo((): RightPaneBudgetLine[] => {
@@ -1851,25 +1909,25 @@ export default function DemoCoti01Page(): React.JSX.Element {
   );
 
   useEffect(() => {
+    const isImpo = tradeDirection === "impo";
     setPets((prev) =>
       prev.map((p) => {
         const danger = isDangerBreed(p.raza, breeds);
-        if (danger) {
+        if (danger && !isImpo) {
           const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
           const costo = defaultCostoFromCrateSelection(crateTariffsData, origin, lar82Id);
           if (p.hasCrate && p.crateId === lar82Id && p.costo === costo) return p;
-          return { ...p, hasCrate: true, crateId: lar82Id, costo };
+          return { ...p, crateRegistered: true, hasCrate: true, crateId: lar82Id, costo };
         }
-        if (!p.hasCrate) return p;
         const allowed = filterCrateOptionsForPet(crateOptionsForOrigin, p.tipo);
         const validIds = new Set(allowed.map((c) => c.id));
         let crateId = p.crateId;
         let costo = p.costo;
-        if (crateId && !validIds.has(crateId)) {
+        if (crateId && crateId !== CUSTOM_CRATE_ID && !validIds.has(crateId)) {
           crateId = "";
           costo = "";
         }
-        if (p.tipo === "gato" && !crateId) {
+        if (p.hasCrate && p.tipo === "gato" && !crateId) {
           const def = defaultCrateIdForCat(crateOptionsForOrigin);
           if (def) {
             crateId = def;
@@ -1880,11 +1938,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
         return { ...p, crateId, costo };
       }),
     );
-  }, [crateOptionsForOrigin, crateTariffsData, origin]);
+  }, [crateOptionsForOrigin, crateTariffsData, origin, tradeDirection]);
 
   // Cuando la raza cambia a peligrosa y los efectos de origen/tarifas ya corrieron,
   // asigna LAR 82 de inmediato sin esperar cambio de crateOptionsForOrigin.
+  // En IMPO no auto-marca: el operador decide manualmente si incluir el crate.
   useEffect(() => {
+    if (tradeDirection === "impo") return;
     const needsFill = pets.some(
       (p) => isDangerBreed(p.raza, breeds) && (!p.hasCrate || p.crateId !== defaultCrateIdForDanger(crateOptionsForOrigin)),
     );
@@ -1894,10 +1954,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
       prev.map((p) => {
         if (!isDangerBreed(p.raza, breeds) || (p.hasCrate && p.crateId === lar82Id)) return p;
         const costo = defaultCostoFromCrateSelection(crateTariffsData, origin, lar82Id);
-        return { ...p, hasCrate: true, crateId: lar82Id, costo };
+        return { ...p, crateRegistered: true, hasCrate: true, crateId: lar82Id, costo };
       }),
     );
-  }, [pets, crateOptionsForOrigin, crateTariffsData, origin]);
+  }, [pets, crateOptionsForOrigin, crateTariffsData, origin, tradeDirection]);
 
   useEffect(() => {
     void (async () => {
@@ -2106,10 +2166,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setPets((prev) => {
       const next = [...prev];
       const merged = { ...next[index], ...patch };
+      const isImpo = tradeDirection === "impo";
       if (Object.prototype.hasOwnProperty.call(patch, "raza")) {
         const danger = isDangerBreed(merged.raza, breeds);
-        if (danger) {
+        if (danger && !isImpo) {
           merged.hasCrate = true;
+          merged.crateRegistered = true;
           const lar82Id = defaultCrateIdForDanger(crateOptionsForOrigin);
           if (lar82Id) {
             merged.crateId = lar82Id;
@@ -2170,7 +2232,39 @@ export default function DemoCoti01Page(): React.JSX.Element {
           costo = defaultCostoFromCrateSelection(crateTariffsData, origin, def);
         }
       }
-      next[index] = { ...p, hasCrate: true, crateId, costo };
+      if (crateId && crateId !== CUSTOM_CRATE_ID && !costo) {
+        costo = defaultCostoFromCrateSelection(crateTariffsData, origin, crateId);
+      }
+      next[index] = { ...p, crateRegistered: true, hasCrate: true, crateId, costo };
+      return next;
+    });
+    setExcludedCrateKeys((prev) => {
+      const target = pets[index]?.id;
+      if (!target || !prev.has(target)) return prev;
+      const next = new Set(prev);
+      next.delete(target);
+      return next;
+    });
+  }
+
+  /** IMPO: pasa una mascota del estado A "sin jaula" al estado B "cliente provee". */
+  function registerCrateAsClient(index: number): void {
+    setPets((prev) => {
+      const next = [...prev];
+      const p = next[index];
+      if (!p || p.crateRegistered) return prev;
+      next[index] = { ...p, crateRegistered: true, hasCrate: false, costo: "" };
+      return next;
+    });
+  }
+
+  /** IMPO: vuelve al estado A "sin jaula" (quita el ítem del presupuesto). */
+  function unregisterCrate(index: number): void {
+    setPets((prev) => {
+      const next = [...prev];
+      const p = next[index];
+      if (!p) return prev;
+      next[index] = { ...p, crateRegistered: false, hasCrate: false, costo: "" };
       return next;
     });
   }
@@ -2180,7 +2274,27 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const next = [...prev];
       const p = next[index];
       if (!p || !p.hasCrate) return prev;
-      next[index] = { ...p, hasCrate: false, crateId: "", costo: "" };
+      next[index] = { ...p, hasCrate: false, costo: "" };
+      return next;
+    });
+  }
+
+  /** Excluye por completo la fila de crate (por mascota o agregada). */
+  function excludeCrateRow(key: string): void {
+    setExcludedCrateKeys((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }
+
+  /** Vuelve a incluir una fila de crate previamente excluida. */
+  function restoreCrateRow(key: string): void {
+    setExcludedCrateKeys((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
       return next;
     });
   }
@@ -2195,7 +2309,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           ? "Sin tarifas de jaula para este origen"
           : "Jaula / tamaño";
 
-  function buildDropboxFilename(): string {
+  function buildQuoteFilename(): string {
     const activePets = pets.slice(0, Math.min(animalCount, pets.length));
     const crateSizes = activePets
       .filter((p) => p.hasCrate && p.crateId)
@@ -2205,21 +2319,20 @@ export default function DemoCoti01Page(): React.JSX.Element {
           : (crateOptionsForOrigin.find((c) => c.id === p.crateId)?.size_code ?? ""),
       )
       .filter(Boolean);
-    const cratesStr = crateSizes.map((s) => `#${s}`).join("");
+    const cratesStr = crateSizes.length > 0 ? `#${crateSizes.join("-")}` : "";
 
-    // "Colombia (BOG)" → "BOG Colombia" | "Australia" → "Australia"
+    // "Colombia (BOG)" → "BOG Colombia" | "EZE, Argentina (EZE)" → "EZE Argentina" | "Australia" → "Australia"
     const locationLabel = (loc: string): string => {
       const iata = extractIataCode(loc);
-      const beforeParen = loc.split("(")[0].trim();
-      let countryName: string;
-      if (beforeParen && !/^[A-Z]{3}$/.test(beforeParen)) {
-        countryName = beforeParen;
-      } else {
-        const inParen = loc.match(/\(([^)]+)\)/)?.[1] ?? "";
-        const parts = inParen.split(",").map((s) => s.trim()).filter(Boolean);
-        countryName = parts[parts.length - 1] || loc.trim();
-      }
-      return iata && iata !== countryName ? `${iata} ${countryName}` : countryName;
+      const rest = loc
+        .replace(/\([^)]*\)/g, " ")
+        .replace(/,/g, " ")
+        .replace(/\b[A-Z]{3}\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!rest) return iata;
+      if (!iata || iata === rest) return rest;
+      return `${iata} ${rest}`;
     };
 
     const origen = locationLabel(origin);
@@ -2239,9 +2352,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
       case "ambas":
         name = `IMPO ${origen} en ${destino} EXPO ${destino} dde ${origen} ${suffix}`;
         break;
-      case "transito":
-        name = `TRANSITO ${origen} ${destino} ${suffix}`;
+      case "transito": {
+        const transitLabel = transitCountry === "argentina" ? "Argentina" : "Chile";
+        name = `TRANSITO ${origen} ${destino} en ${transitLabel} ${suffix}`;
         break;
+      }
       default:
         name = `cotizacion ${suffix}`;
     }
@@ -2253,7 +2368,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     pdfBase64: string,
     match: FolderMatch,
   ): Promise<{ uploadedFilePath: string; originalFolderPath: string; renamedFolderPath: string }> {
-    const filename = buildDropboxFilename();
+    const filename = buildQuoteFilename();
 
     const folderPath = match.pathDisplay;
     if (!folderPath) throw new Error("Sin ruta de carpeta en Dropbox.");
@@ -2581,10 +2696,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
     try {
       const pdfBase64 = await generatePdfBase64();
 
+      const filename = buildQuoteFilename();
+
       if (emailDownloadPdf) {
-        const filename = customerName.trim()
-          ? `cotizacion-${customerName.trim().replace(/\s+/g, "-")}.pdf`
-          : "cotizacion-latam-pet.pdf";
         const link = document.createElement("a");
         link.href = `data:application/pdf;base64,${pdfBase64}`;
         link.download = filename;
@@ -2594,7 +2708,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const emailRes = await fetch("/api/send-quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: emailTo, pdfBase64, customerName, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
+        body: JSON.stringify({ to: emailTo, pdfBase64, customerName, filename, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
       });
       if (!emailRes.ok) {
         const data = (await emailRes.json()) as { error?: string };
@@ -2645,6 +2759,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
       });
 
       setEmailResult("ok");
+      setCustomerName("");
+      setAgentName("");
+      setOrigin("");
+      setDestination("");
+      setTravelDate("");
+      setAerolinea("");
+      setAnimalCount(1);
+      setPets([emptyPet()]);
+      setLatamRows([]);
       setDbxUploadModalOpen(true);
       setDbxUploadStatus("uploading");
       setDbxMatchedFolderName(null);
@@ -3352,90 +3475,221 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         placeholder="Nombre"
                       />
                     </div>
-                    {pet.hasCrate ? (
-                      <>
-                        <div>
-                          <div className="mb-0.5 flex items-center justify-between gap-2">
-                            <label
-                              htmlFor={`dc02-pet-${i}-crate`}
-                              className="block text-xs font-medium text-zinc-600"
-                            >
-                              Crate
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => removeCrateFromPet(i)}
-                              className="group/remove-crate -my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
-                              title="Quitar crate"
-                              aria-label={`Quitar crate cotizado de mascota ${i + 1}`}
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.25"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3 w-3"
-                                aria-hidden
-                              >
-                                <path d="M18 6 6 18" />
-                                <path d="m6 6 12 12" />
-                              </svg>
-                              <span className="tracking-wide uppercase">
-                                quitar
-                              </span>
-                            </button>
-                          </div>
-                          {(() => {
-                            const danger = isDangerBreed(pet.raza, breeds);
-                            const optsForPet = filterCrateOptionsForPet(
-                              crateOptionsForOrigin,
-                              pet.tipo,
-                              danger,
-                            );
-                            return (
+                    {tradeDirection === "impo" && !pet.hasCrate && !pet.crateRegistered ? (
+                      <div className="col-span-2">
+                        <span className={fieldLabelClass} aria-hidden="true">
+                          &nbsp;
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => registerCrateAsClient(i)}
+                          className={`${inputClass} cursor-pointer truncate whitespace-nowrap border-sky-600/70 bg-sky-50 px-2 font-medium text-sky-900 hover:bg-sky-100`}
+                          aria-label={`Agregar jaula a mascota ${i + 1} (cliente provee)`}
+                        >
+                          + Agregar jaula
+                        </button>
+                      </div>
+                    ) : (
+                    <>
+                      <div>
+                        <div className="mb-0.5 flex items-center justify-between gap-2">
+                          <label
+                            htmlFor={`dc02-pet-${i}-crate`}
+                            className="block text-xs font-medium text-zinc-600"
+                          >
+                            Crate
+                          </label>
+                          <div className="flex items-center gap-1">
+                            {tradeDirection === "impo" ? (
                               <>
-                              <select
-                                id={`dc02-pet-${i}-crate`}
-                                value={pet.crateId}
-                                onChange={(e) => {
-                                  const id = e.target.value;
-                                  const costo =
-                                    id === "" || id === CUSTOM_CRATE_ID
-                                      ? ""
-                                      : defaultCostoFromCrateSelection(
-                                          crateTariffsData,
-                                          origin,
-                                          id,
-                                        );
-                                  updatePet(i, { crateId: id, costo });
-                                }}
-                                disabled={
-                                  crateTariffsLoading ||
-                                  Boolean(crateTariffsError) ||
-                                  !origin.trim() ||
-                                  optsForPet.length === 0
-                                }
-                                className={inputClass}
-                              >
-                                <option value="">
-                                  {crateSelectPlaceholder}
-                                </option>
-                                {optsForPet.map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {formatCrateOptionLabel(c)}
-                                  </option>
-                                ))}
-                                <option value={CUSTOM_CRATE_ID}>
-                                  Personalizado
-                                </option>
-                              </select>
-                            </>
-                            );
-                          })()}
+                                {pet.hasCrate ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCrateFromPet(i)}
+                                    className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
+                                    title="Volver a 'cliente provee el crate'"
+                                    aria-label={`Cliente provee el crate de mascota ${i + 1}`}
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2.25"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-3 w-3"
+                                      aria-hidden
+                                    >
+                                      <path d="M9 14 4 9l5-5" />
+                                      <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                                    </svg>
+                                    <span className="tracking-wide uppercase">
+                                      cliente provee
+                                    </span>
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => unregisterCrate(i)}
+                                  className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
+                                  title="Quitar jaula (no aparece en cotización)"
+                                  aria-label={`Quitar jaula de mascota ${i + 1}`}
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.25"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-3 w-3"
+                                    aria-hidden
+                                  >
+                                    <path d="M18 6 6 18" />
+                                    <path d="m6 6 12 12" />
+                                  </svg>
+                                  <span className="tracking-wide uppercase">
+                                    quitar jaula
+                                  </span>
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                {pet.hasCrate ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCrateFromPet(i)}
+                                    className="group/remove-crate -my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
+                                    title="Quitar crate (cliente provee)"
+                                    aria-label={`Quitar crate cotizado de mascota ${i + 1}`}
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2.25"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-3 w-3"
+                                      aria-hidden
+                                    >
+                                      <path d="M18 6 6 18" />
+                                      <path d="m6 6 12 12" />
+                                    </svg>
+                                    <span className="tracking-wide uppercase">
+                                      quitar
+                                    </span>
+                                  </button>
+                                ) : null}
+                                {excludedCrateKeys.has(pet.id) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => restoreCrateRow(pet.id)}
+                                    className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-emerald-500 transition hover:bg-emerald-50 hover:text-emerald-700"
+                                    title="Volver a incluir ítem"
+                                    aria-label={`Volver a incluir ítem de crate de mascota ${i + 1}`}
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2.25"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-3 w-3"
+                                      aria-hidden
+                                    >
+                                      <path d="M3 12a9 9 0 1 0 3-6.7" />
+                                      <path d="M3 4v5h5" />
+                                    </svg>
+                                    <span className="tracking-wide uppercase">
+                                      restaurar
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => excludeCrateRow(pet.id)}
+                                    className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
+                                    title="Eliminar ítem (no aparece en cotización)"
+                                    aria-label={`Eliminar ítem de crate de mascota ${i + 1}`}
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2.25"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-3 w-3"
+                                      aria-hidden
+                                    >
+                                      <path d="M3 6h18" />
+                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                      <line x1="10" x2="10" y1="11" y2="17" />
+                                      <line x1="14" x2="14" y1="11" y2="17" />
+                                    </svg>
+                                    <span className="tracking-wide uppercase">
+                                      eliminar
+                                    </span>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
+                        {(() => {
+                          const danger = isDangerBreed(pet.raza, breeds);
+                          const optsForPet = filterCrateOptionsForPet(
+                            crateOptionsForOrigin,
+                            pet.tipo,
+                            danger,
+                          );
+                          return (
+                            <select
+                              id={`dc02-pet-${i}-crate`}
+                              value={pet.crateId}
+                              onChange={(e) => {
+                                const id = e.target.value;
+                                const costo =
+                                  id === "" || id === CUSTOM_CRATE_ID || !pet.hasCrate
+                                    ? ""
+                                    : defaultCostoFromCrateSelection(
+                                        crateTariffsData,
+                                        origin,
+                                        id,
+                                      );
+                                updatePet(i, { crateId: id, costo });
+                              }}
+                              disabled={
+                                crateTariffsLoading ||
+                                Boolean(crateTariffsError) ||
+                                !origin.trim() ||
+                                optsForPet.length === 0
+                              }
+                              className={`${inputClass} pr-0`}
+                            >
+                              <option value="">
+                                {crateSelectPlaceholder}
+                              </option>
+                              {optsForPet.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {formatCrateOptionLabel(c)}
+                                </option>
+                              ))}
+                              <option value={CUSTOM_CRATE_ID}>
+                                Personalizado
+                              </option>
+                            </select>
+                          );
+                        })()}
+                      </div>
+                      {pet.hasCrate ? (
                         <div className="col-span-2 sm:col-span-1 lg:col-span-1">
                           <label
                             htmlFor={`dc02-pet-${i}-costo`}
@@ -3456,37 +3710,48 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             placeholder="Ej. 270 USD"
                           />
                         </div>
-                        {pet.crateId === CUSTOM_CRATE_ID && (
-                          <div className="col-span-2 sm:col-span-3 lg:col-span-5">
-                            <AutoHeightDescriptionTextarea
-                              value={pet.customCrateSize}
-                              onChange={(e) =>
-                                updatePet(i, { customCrateSize: e.target.value })
-                              }
-                              minHeightPx={64}
-                              className={`${inputClass} font-sans`}
-                              placeholder="Medidas/notas de la jaula personalizada"
-                            />
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="col-span-2 sm:col-span-1 lg:col-span-2">
-                        <span
-                          className={fieldLabelClass}
-                          aria-hidden="true"
-                        >
-                          &nbsp;
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => addCrateToPet(i)}
-                          className={`${inputClass} cursor-pointer border-emerald-600/70 bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100`}
-                          aria-label={`Agregar crate cotizado a mascota ${i + 1}`}
-                        >
-                          + Agregar crate
-                        </button>
-                      </div>
+                      ) : (
+                        <div>
+                          <span
+                            className={fieldLabelClass}
+                            aria-hidden="true"
+                          >
+                            &nbsp;
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => addCrateToPet(i)}
+                            className={
+                              tradeDirection === "impo"
+                                ? `${inputClass} cursor-pointer truncate whitespace-nowrap border-sky-600/70 bg-sky-50 px-2 font-medium text-sky-900 hover:bg-sky-100`
+                                : `${inputClass} cursor-pointer truncate whitespace-nowrap border-emerald-600/70 bg-emerald-50 px-2 font-medium text-emerald-900 hover:bg-emerald-100`
+                            }
+                            aria-label={
+                              tradeDirection === "impo"
+                                ? `LATAM provee el crate de mascota ${i + 1}`
+                                : `Agregar crate cotizado a mascota ${i + 1}`
+                            }
+                          >
+                            {tradeDirection === "impo"
+                              ? "+ LATAM provee el crate"
+                              : "+ Agregar crate"}
+                          </button>
+                        </div>
+                      )}
+                      {pet.crateId === CUSTOM_CRATE_ID && (
+                        <div className="col-span-2 sm:col-span-3 lg:col-span-5">
+                          <AutoHeightDescriptionTextarea
+                            value={pet.customCrateSize}
+                            onChange={(e) =>
+                              updatePet(i, { customCrateSize: e.target.value })
+                            }
+                            minHeightPx={64}
+                            className={`${inputClass} font-sans`}
+                            placeholder="Medidas/notas de la jaula personalizada"
+                          />
+                        </div>
+                      )}
+                    </>
                     )}
                   </div>
                   {isBrachyBreed(pet.raza, breeds) && (
@@ -3862,6 +4127,46 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   </>
                 );
               })() : null}
+              {(() => {
+                const n = Math.min(animalCount, pets.length);
+                const activePets = pets.slice(0, n);
+                if (activePets.length === 0) return null;
+                return (
+                  <div className="mt-3 rounded border border-zinc-200 bg-white px-3 py-2">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-sky-700">
+                      Crates
+                    </p>
+                    <ul className="space-y-1">
+                      {activePets.map((pet, i) => {
+                        const tipoLabel =
+                          pet.tipo === "perro" ? "Dog" : pet.tipo === "gato" ? "Cat" : "Pet";
+                        const name = pet.nombre.trim() || `#${i + 1}`;
+                        const inBudget =
+                          pet.hasCrate && !excludedCrateKeys.has(pet.id);
+                        return (
+                          <li
+                            key={pet.id}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            <span className="text-[11px] text-zinc-700">
+                              Crate · {tipoLabel} · {name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => addCrateToPet(i)}
+                              disabled={inBudget}
+                              className="shrink-0 rounded border border-emerald-600/60 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                              aria-label={`Agregar crate para mascota ${i + 1}`}
+                            >
+                              {inBudget ? "✓" : "+"}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
               </div>
               ) : null}
             </div>
@@ -4230,7 +4535,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                           </div>
                           {row.source === "crate" ? (
                             <p className="font-mono text-[10px] text-amber-600/70">
-                              Crate · vinculado a mascota
+                              {row.petId ? "Crate · vinculado a mascota" : "Crate · cliente provee"}
                             </p>
                           ) : row.source === "impo" || row.source === "similar" ? (
                             <p className="font-mono text-[10px] text-zinc-400">
@@ -4278,37 +4583,84 @@ export default function DemoCoti01Page(): React.JSX.Element {
                           </div>
                           ) : null}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (row.source === "crate" && row.petId) {
-                              const petIndex = pets.findIndex((p) => p.id === row.petId);
-                              if (petIndex >= 0) removeCrateFromPet(petIndex);
-                            } else {
-                              removeLatamRow(row.id);
-                            }
-                          }}
-                          className="mt-7 shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700 sm:mt-8"
-                          aria-label={`Quitar ${row.title}`}
-                          title="Eliminar fila"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="h-4 w-4"
-                            aria-hidden
+                        {row.source === "crate" && row.petId ? (
+                          <div className="mt-7 flex shrink-0 flex-col gap-1 sm:mt-8">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const petIndex = pets.findIndex((p) => p.id === row.petId);
+                                if (petIndex >= 0) removeCrateFromPet(petIndex);
+                              }}
+                              className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-amber-50 hover:text-amber-700"
+                              aria-label={`Quitar jaula de cotización: ${row.title}`}
+                              title="Quitar como ítem a cotizar (cliente provee)"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                                aria-hidden
+                              >
+                                <path d="M18 6 6 18" />
+                                <path d="m6 6 12 12" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => excludeCrateRow(row.petId!)}
+                              className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700"
+                              aria-label={`Eliminar ítem por completo: ${row.title}`}
+                              title="Eliminar ítem por completo (restaurable desde la tarjeta de la mascota)"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                                aria-hidden
+                              >
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                <line x1="10" x2="10" y1="11" y2="17" />
+                                <line x1="14" x2="14" y1="11" y2="17" />
+                              </svg>
+                            </button>
+                          </div>
+                        ) : row.source === "crate" ? null : (
+                          <button
+                            type="button"
+                            onClick={() => removeLatamRow(row.id)}
+                            className="mt-7 shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700 sm:mt-8"
+                            aria-label={`Quitar ${row.title}`}
+                            title="Eliminar fila"
                           >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            <line x1="10" x2="10" y1="11" y2="17" />
-                            <line x1="14" x2="14" y1="11" y2="17" />
-                          </svg>
-                        </button>
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="h-4 w-4"
+                              aria-hidden
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" x2="10" y1="11" y2="17" />
+                              <line x1="14" x2="14" y1="11" y2="17" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
                       );
                     })}

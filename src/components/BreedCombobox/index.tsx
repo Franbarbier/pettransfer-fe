@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBreeds } from "@/hooks/useBreeds";
 
+function foldDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
 type Props = {
   id?: string;
   tipo: "" | "perro" | "gato";
@@ -23,12 +27,15 @@ export function BreedCombobox({ id, tipo, value, onChange, className, placeholde
   }, [value]);
 
   const suggestions = useMemo(() => {
-    const q = inputValue.trim().toLowerCase();
+    const q = foldDiacritics(inputValue.trim());
     if (q.length < 3) return [];
     return breeds
       .filter((r) => {
         if (tipo && r.type !== tipo) return false;
-        return r.name_es.toLowerCase().includes(q) || r.name_en.toLowerCase().includes(q);
+        return (
+          foldDiacritics(r.name_es).includes(q) ||
+          foldDiacritics(r.name_en).includes(q)
+        );
       })
       .slice(0, 12);
   }, [inputValue, tipo, breeds]);

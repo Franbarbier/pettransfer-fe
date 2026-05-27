@@ -82,7 +82,10 @@ const EXPO_FORMULAS: Record<string, Record<string, PriceFormula>> = {
   },
 };
 
-// IMPO formulas: countryKey → airportKey → itemKey → formula
+// IMPO formulas: countryKey → airportKey → itemKey → formula.
+// La clave especial `_any` agrupa fórmulas que aplican al país sin importar el aeropuerto.
+const ANY_AIRPORT = "_any";
+
 const IMPO_FORMULAS: Record<string, Record<string, Record<string, PriceFormula>>> = {
   usa: {
     mia: {
@@ -94,6 +97,27 @@ const IMPO_FORMULAS: Record<string, Record<string, Record<string, PriceFormula>>
       customs_clearance_eze_airport:  tiered(1780, 2130, 2480, 2830),
       mandatory_fixed_import_taxes:   tiered(280, 380, 450, 470),
       home_delivery:                  tiered(180, 180, 180, 380),
+    },
+    [ANY_AIRPORT]: {
+      poa_power_of_attorney:          tiered(120),
+    },
+  },
+  chile: {
+    scl: {
+      customs_clearance:                  tiered(980, 1100, 1220),
+      home_delivery:                      tiered(180, 210, 280),
+    },
+  },
+  mexico: {
+    mex: {
+      customs_clearance_mex_airport:      tiered(1200, 1430, 1680, 1830),
+      airline_fee_to_transfer_to_warehouse: tiered(180, 230, 280, 320),
+      warehouse_access:                   tiered(120, 140, 160, 180),
+      home_delivery_in_metro_mexico_city: tiered(280, 300, 350, 400),
+    },
+    cun: {
+      customs_clearance_cun_airport:      tiered(1350, 1500, 1650),
+      warehouse_access:                   tiered(190, 240, 290),
     },
   },
   brasil: {
@@ -120,6 +144,7 @@ const IMPO_FORMULAS: Record<string, Record<string, Record<string, PriceFormula>>
 /**
  * Devuelve el precio calculado para un ítem IMPO, o null si no hay fórmula.
  * countryKey, airportKey e itemKey deben estar normalizados.
+ * Si no hay fórmula específica para el aeropuerto, prueba con la del país (`_any`).
  */
 export function computeImpoItemPrice(
   countryKey: string,
@@ -127,7 +152,10 @@ export function computeImpoItemPrice(
   itemKey: string,
   ctx: ExpoItemPriceCtx,
 ): string | null {
-  const result = IMPO_FORMULAS[countryKey]?.[airportKey]?.[itemKey]?.(ctx);
+  const formula =
+    IMPO_FORMULAS[countryKey]?.[airportKey]?.[itemKey] ??
+    IMPO_FORMULAS[countryKey]?.[ANY_AIRPORT]?.[itemKey];
+  const result = formula?.(ctx);
   return result != null ? String(result) : null;
 }
 

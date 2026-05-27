@@ -278,7 +278,7 @@ function QuotePrintMain({ data, callbacks }: { data: QuotePrintData; callbacks: 
               <div className="w-[20%] flex items-center justify-end py-2 pl-5">
                 {line.rowId ? (
                   <div className={`${montserrat.className} text-[11px] text-zinc-500 flex items-center gap-0.5`}>
-                    <span>USD</span>
+                    {line.price.trim() !== "" && line.price.trim() !== "0" && <span>USD</span>}
                     <input
                       className={`${inputClass} text-right w-[60px]`}
                       value={line.price}
@@ -289,7 +289,7 @@ function QuotePrintMain({ data, callbacks }: { data: QuotePrintData; callbacks: 
                   </div>
                 ) : (
                   <span className={`${montserrat.className} text-[11px] text-zinc-500`}>
-                    USD {line.price || "—"}
+                    {line.price.trim() === "" || line.price.trim() === "0" ? "" : `USD ${line.price}`}
                   </span>
                 )}
               </div>
