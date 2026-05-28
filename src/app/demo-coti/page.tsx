@@ -45,6 +45,23 @@ import {
   APP_TESTING_PATH,
 } from "@/lib/dropboxSearch";
 import { QuotePrintLayout, type QuotePrintData, type QuotePrintCallbacks } from "@/components/QuotePrintLayout";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 
 const apiBase = getApiBaseUrl().replace(/\/$/, "");
 
@@ -551,6 +568,253 @@ function AutoHeightDescriptionTextarea({
 }
 
 
+type SortableLatamRowProps = {
+  row: LatamFieldRow;
+  rowIdx: number;
+  placeholderCtx: PlaceholderCtx;
+  updateLatamRow: (id: string, patch: Partial<Pick<LatamFieldRow, "title" | "price" | "description">>) => void;
+  removeLatamRow: (id: string) => void;
+  removeCrateFromPet: (petIndex: number) => void;
+  excludeCrateRow: (petId: string) => void;
+  pets: PetRow[];
+  isOverlay?: boolean;
+};
+
+function SortableLatamRow({
+  row,
+  rowIdx,
+  placeholderCtx,
+  updateLatamRow,
+  removeLatamRow,
+  removeCrateFromPet,
+  excludeCrateRow,
+  pets,
+  isOverlay = false,
+}: SortableLatamRowProps): ReactElement {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      role="listitem"
+      className={`relative flex items-start gap-3 rounded-lg border p-3 shadow-sm ring-1 transition ${latamRowThemeClasses(row.source)}${isDragging && !isOverlay ? " opacity-40" : ""}${isOverlay ? " rotate-[0.5deg] shadow-2xl" : ""}`}
+    >
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        {...listeners}
+        {...attributes}
+        className="mt-1 flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 active:cursor-grabbing"
+        aria-label={`Reordenar ítem ${rowIdx + 1}: ${row.title || "sin título"}`}
+        title="Arrastrá para reordenar"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          className="h-4 w-4"
+          aria-hidden
+        >
+          <circle cx="9" cy="6" r="1.6" />
+          <circle cx="15" cy="6" r="1.6" />
+          <circle cx="9" cy="12" r="1.6" />
+          <circle cx="15" cy="12" r="1.6" />
+          <circle cx="9" cy="18" r="1.6" />
+          <circle cx="15" cy="18" r="1.6" />
+        </svg>
+      </button>
+      <span
+        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-white text-[11px] font-bold tabular-nums text-zinc-600 shadow-sm"
+        aria-hidden
+      >
+        {rowIdx + 1}
+      </span>
+      <div className="min-w-0 flex-1 space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+          <div className="min-w-0 flex-1">
+            <label
+              htmlFor={`dc02-latam-title-${row.id}`}
+              className={fieldLabelClass}
+            >
+              Título
+            </label>
+            <input
+              id={`dc02-latam-title-${row.id}`}
+              type="text"
+              autoComplete="off"
+              value={row.title}
+              onChange={(e) =>
+                updateLatamRow(row.id, { title: e.target.value })
+              }
+              className={inputClass}
+            />
+          </div>
+          <div className="w-full shrink-0 sm:w-[7.5rem] md:w-36">
+            <label
+              htmlFor={`dc02-latam-price-${row.id}`}
+              className={fieldLabelClass}
+            >
+              Precio
+            </label>
+            <input
+              id={`dc02-latam-price-${row.id}`}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={row.price}
+              onChange={(e) =>
+                updateLatamRow(row.id, {
+                  price: e.target.value.replace(/[^0-9.,]/g, ""),
+                })
+              }
+              className={`${inputClass} tabular-nums`}
+              placeholder="—"
+            />
+          </div>
+        </div>
+        {row.source === "crate" ? (
+          <p className="font-mono text-[10px] text-amber-600/70">
+            {row.petId ? "Crate · vinculado a mascota" : "Crate · cliente provee"}
+          </p>
+        ) : row.source === "impo" || row.source === "similar" ? (
+          <p className="font-mono text-[10px] text-zinc-400">
+            {row.source === "impo" ? "IMPO · " : "Similar · "}
+            {row.fieldKey}
+          </p>
+        ) : null}
+        <div>
+          <label
+            htmlFor={`dc02-latam-desc-${row.id}`}
+            className={fieldLabelClass}
+          >
+            Descripción
+          </label>
+          <AutoHeightDescriptionTextarea
+            id={`dc02-latam-desc-${row.id}`}
+            value={resolvePlaceholders(row.description, placeholderCtx)}
+            onChange={(e) =>
+              updateLatamRow(row.id, { description: e.target.value })
+            }
+            minHeightPx={52}
+            className={`${inputClass} font-sans`}
+            placeholder="Texto para el ítem / cotización"
+          />
+        </div>
+        {row.source !== "crate" ? (
+          <div>
+            <p className={fieldLabelClass}>Nota interna</p>
+            {row.internalNote.trim() !== "" ? (
+              <LinkifiedText
+                text={row.internalNote}
+                className="text-[11px] leading-relaxed text-zinc-500"
+              />
+            ) : (
+              <p className="text-[11px] leading-relaxed text-zinc-500">—</p>
+            )}
+            {row.priceRef ? (
+              <p className="mt-1 font-mono text-[10px] text-zinc-400">
+                Precio ref.: {row.priceRef}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {row.source === "crate" && row.petId ? (
+        <div className="mt-7 flex shrink-0 flex-col gap-1 sm:mt-8">
+          <button
+            type="button"
+            onClick={() => {
+              const petIndex = pets.findIndex((p) => p.id === row.petId);
+              if (petIndex >= 0) removeCrateFromPet(petIndex);
+            }}
+            className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-amber-50 hover:text-amber-700"
+            aria-label={`Quitar jaula de cotización: ${row.title}`}
+            title="Quitar como ítem a cotizar (cliente provee)"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              aria-hidden
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => excludeCrateRow(row.petId!)}
+            className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700"
+            aria-label={`Eliminar ítem por completo: ${row.title}`}
+            title="Eliminar ítem por completo (restaurable desde la tarjeta de la mascota)"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+              aria-hidden
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="10" x2="10" y1="11" y2="17" />
+              <line x1="14" x2="14" y1="11" y2="17" />
+            </svg>
+          </button>
+        </div>
+      ) : row.source === "crate" ? null : (
+        <button
+          type="button"
+          onClick={() => removeLatamRow(row.id)}
+          className="mt-7 shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700 sm:mt-8"
+          aria-label={`Quitar ${row.title}`}
+          title="Eliminar fila"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-4 w-4"
+            aria-hidden
+          >
+            <path d="M3 6h18" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="10" x2="10" y1="11" y2="17" />
+            <line x1="14" x2="14" y1="11" y2="17" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function DemoCoti01Page(): React.JSX.Element {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
@@ -635,11 +899,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [officialCountry, setOfficialCountry] = useState("");
   const [officialSubmitting, setOfficialSubmitting] = useState(false);
   const [officialError, setOfficialError] = useState<string | null>(null);
-  const [dragRowIndex, setDragRowIndex] = useState<number | null>(null);
-  const [dragOverRowIndex, setDragOverRowIndex] = useState<number | null>(null);
-  const [dragOverPosition, setDragOverPosition] = useState<
-    "before" | "after" | null
-  >(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(true);
   const [emailDrawerOpen, setEmailDrawerOpen] = useState(false);
   const [emailTo, setEmailTo] = useState("");
@@ -669,6 +932,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
     useState(false);
   const [impoGuidePanelOpen, setImpoGuidePanelOpen] = useState(false);
   const [expoGuidePanelOpen, setExpoGuidePanelOpen] = useState(false);
+  const [deletedToast, setDeletedToast] = useState<{
+    item: LatamFieldRow;
+    index: number;
+  } | null>(null);
+  const deletedToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Cotizaciones similares: primero las que coinciden en cantidad de mascotas (# animales del formulario). */
   const similarQuotesSortedByPetMatch = useMemo(() => {
@@ -1072,7 +1340,25 @@ export default function DemoCoti01Page(): React.JSX.Element {
   }, [officialOrphanItems, latamRows]);
 
   function removeLatamRow(rowId: string): void {
+    const index = latamRows.findIndex((r) => r.id === rowId);
+    if (index === -1) return;
+    const item = latamRows[index]!;
+    if (deletedToastTimerRef.current) clearTimeout(deletedToastTimerRef.current);
+    setDeletedToast({ item, index });
+    deletedToastTimerRef.current = setTimeout(() => setDeletedToast(null), 5000);
     setLatamRows((prev) => prev.filter((r) => r.id !== rowId));
+  }
+
+  function undoDeleteLatamRow(): void {
+    if (!deletedToast) return;
+    if (deletedToastTimerRef.current) clearTimeout(deletedToastTimerRef.current);
+    const { item, index } = deletedToast;
+    setLatamRows((prev) => {
+      const next = [...prev];
+      next.splice(index, 0, item);
+      return next;
+    });
+    setDeletedToast(null);
   }
 
   async function apiAddVendedor(name: string, email: string): Promise<boolean> {
@@ -1218,26 +1504,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
     }
   }
 
-  /**
-   * Reordena `latamRows` moviendo el ítem en `fromIndex` justo antes del que
-   * estaba en `toIndex`. Se usa para drag&drop manual.
-   */
-  function moveLatamRow(fromIndex: number, toIndex: number): void {
+  function handleLatamRowDragEnd(event: DragEndEvent): void {
+    const { active, over } = event;
+    setActiveDragId(null);
+    if (!over || active.id === over.id) return;
     setLatamRows((prev) => {
-      if (
-        fromIndex < 0 ||
-        fromIndex >= prev.length ||
-        toIndex < 0 ||
-        toIndex > prev.length ||
-        fromIndex === toIndex
-      ) {
-        return prev;
-      }
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex;
-      next.splice(insertAt, 0, moved);
-      return next;
+      const oldIndex = prev.findIndex((r) => r.id === active.id);
+      const newIndex = prev.findIndex((r) => r.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
     });
   }
 
@@ -4360,330 +4635,74 @@ export default function DemoCoti01Page(): React.JSX.Element {
                       {latamRows.length === 1 ? "ítem" : "ítems"}
                     </span>
                   </header>
-                  <div
-                    className="space-y-3 p-4"
-                    role="list"
-                    aria-label="Ítems de cotización y referencia"
+                  <DndContext
+                    sensors={dndSensors}
+                    collisionDetection={closestCenter}
+                    modifiers={[restrictToVerticalAxis]}
+                    onDragStart={({ active }) =>
+                      setActiveDragId(active.id as string)
+                    }
+                    onDragEnd={handleLatamRowDragEnd}
+                    onDragCancel={() => setActiveDragId(null)}
                   >
-                    {latamRows.length === 0 ? (
-                      <p className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/80 px-4 py-8 text-center text-sm text-zinc-500">
-                        Todavía no hay líneas. Usá{" "}
-                        <span className="font-medium text-zinc-700">
-                          Agregar al presupuesto
-                        </span>{" "}
-                        abajo (personalizado sin origen, o IMPO / similar si
-                        aplica).
-                      </p>
-                    ) : null}
-                  {latamRows.map((row, rowIdx) => {
-                      const isDragging = dragRowIndex === rowIdx;
-                      const activeOnThisRow =
-                        dragRowIndex !== null &&
-                        dragOverRowIndex === rowIdx &&
-                        dragOverPosition !== null;
-                      const wouldBeNoop =
-                        dragRowIndex !== null &&
-                        ((dragOverPosition === "before" &&
-                          (rowIdx === dragRowIndex ||
-                            rowIdx === dragRowIndex + 1)) ||
-                          (dragOverPosition === "after" &&
-                            (rowIdx === dragRowIndex ||
-                              rowIdx === dragRowIndex - 1)));
-                      const showMarkerTop =
-                        activeOnThisRow &&
-                        dragOverPosition === "before" &&
-                        !wouldBeNoop;
-                      const showMarkerBottom =
-                        activeOnThisRow &&
-                        dragOverPosition === "after" &&
-                        !wouldBeNoop;
-                      return (
+                    <SortableContext
+                      items={latamRows.map((r) => r.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
                       <div
-                        key={row.id}
-                        role="listitem"
-                        onDragOver={(e) => {
-                          if (dragRowIndex === null) return;
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          const rect =
-                            e.currentTarget.getBoundingClientRect();
-                          const pos: "before" | "after" =
-                            e.clientY < rect.top + rect.height / 2
-                              ? "before"
-                              : "after";
-                          if (dragOverRowIndex !== rowIdx) {
-                            setDragOverRowIndex(rowIdx);
-                          }
-                          if (dragOverPosition !== pos) {
-                            setDragOverPosition(pos);
-                          }
-                        }}
-                        onDragLeave={(e) => {
-                          if (
-                            e.currentTarget.contains(
-                              e.relatedTarget as Node | null,
-                            )
-                          ) {
-                            return;
-                          }
-                          if (dragOverRowIndex === rowIdx) {
-                            setDragOverRowIndex(null);
-                            setDragOverPosition(null);
-                          }
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (
-                            dragRowIndex === null ||
-                            dragOverPosition === null
-                          ) {
-                            return;
-                          }
-                          const from = dragRowIndex;
-                          const to =
-                            dragOverPosition === "after"
-                              ? rowIdx + 1
-                              : rowIdx;
-                          moveLatamRow(from, to);
-                          setDragRowIndex(null);
-                          setDragOverRowIndex(null);
-                          setDragOverPosition(null);
-                        }}
-                        className={`relative flex items-start gap-3 rounded-lg border p-3 shadow-sm ring-1 transition ${latamRowThemeClasses(
-                          row.source,
-                        )}${isDragging ? " opacity-40" : ""}`}
+                        className="space-y-3 p-4"
+                        role="list"
+                        aria-label="Ítems de cotización y referencia"
                       >
-                        {showMarkerTop ? (
-                          <span
-                            className="pointer-events-none absolute left-1 right-1 -top-[5px] z-10 h-[3px] rounded-full bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]"
-                            aria-hidden
-                          />
+                        {latamRows.length === 0 ? (
+                          <p className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/80 px-4 py-8 text-center text-sm text-zinc-500">
+                            Todavía no hay líneas. Usá{" "}
+                            <span className="font-medium text-zinc-700">
+                              Agregar al presupuesto
+                            </span>{" "}
+                            abajo (personalizado sin origen, o IMPO / similar si
+                            aplica).
+                          </p>
                         ) : null}
-                        {showMarkerBottom ? (
-                          <span
-                            className="pointer-events-none absolute left-1 right-1 -bottom-[5px] z-10 h-[3px] rounded-full bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]"
-                            aria-hidden
+                        {latamRows.map((row, rowIdx) => (
+                          <SortableLatamRow
+                            key={row.id}
+                            row={row}
+                            rowIdx={rowIdx}
+                            placeholderCtx={placeholderCtx}
+                            updateLatamRow={updateLatamRow}
+                            removeLatamRow={removeLatamRow}
+                            removeCrateFromPet={removeCrateFromPet}
+                            excludeCrateRow={excludeCrateRow}
+                            pets={pets}
                           />
-                        ) : null}
-                        <button
-                          type="button"
-                          draggable
-                          onDragStart={(e) => {
-                            setDragRowIndex(rowIdx);
-                            setDragOverRowIndex(rowIdx);
-                            e.dataTransfer.effectAllowed = "move";
-                            try {
-                              e.dataTransfer.setData("text/plain", row.id);
-                            } catch {
-                            }
-                          }}
-                          onDragEnd={() => {
-                            setDragRowIndex(null);
-                            setDragOverRowIndex(null);
-                            setDragOverPosition(null);
-                          }}
-                          className="mt-1 flex h-8 w-6 shrink-0 cursor-grab items-center justify-center rounded text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 active:cursor-grabbing"
-                          aria-label={`Reordenar ítem ${rowIdx + 1}: ${row.title || "sin título"}`}
-                          title="Arrastrá para reordenar"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            className="h-4 w-4"
-                            aria-hidden
-                          >
-                            <circle cx="9" cy="6" r="1.6" />
-                            <circle cx="15" cy="6" r="1.6" />
-                            <circle cx="9" cy="12" r="1.6" />
-                            <circle cx="15" cy="12" r="1.6" />
-                            <circle cx="9" cy="18" r="1.6" />
-                            <circle cx="15" cy="18" r="1.6" />
-                          </svg>
-                        </button>
-                        <span
-                          className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-white text-[11px] font-bold tabular-nums text-zinc-600 shadow-sm"
-                          aria-hidden
-                        >
-                          {rowIdx + 1}
-                        </span>
-                        <div className="min-w-0 flex-1 space-y-3">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-                            <div className="min-w-0 flex-1">
-                              <label
-                                htmlFor={`dc02-latam-title-${row.id}`}
-                                className={fieldLabelClass}
-                              >
-                                Título
-                              </label>
-                              <input
-                                id={`dc02-latam-title-${row.id}`}
-                                type="text"
-                                autoComplete="off"
-                                value={row.title}
-                                onChange={(e) =>
-                                  updateLatamRow(row.id, {
-                                    title: e.target.value,
-                                  })
-                                }
-                                className={inputClass}
-                              />
-                            </div>
-                            <div className="w-full shrink-0 sm:w-[7.5rem] md:w-36">
-                              <label
-                                htmlFor={`dc02-latam-price-${row.id}`}
-                                className={fieldLabelClass}
-                              >
-                                Precio
-                              </label>
-                              <input
-                                id={`dc02-latam-price-${row.id}`}
-                                type="text"
-                                inputMode="decimal"
-                                autoComplete="off"
-                                value={row.price}
-                                onChange={(e) =>
-                                  updateLatamRow(row.id, {
-                                    price: e.target.value.replace(/[^0-9.,]/g, ""),
-                                  })
-                                }
-                                className={`${inputClass} tabular-nums`}
-                                placeholder="—"
-                              />
-                            </div>
-                          </div>
-                          {row.source === "crate" ? (
-                            <p className="font-mono text-[10px] text-amber-600/70">
-                              {row.petId ? "Crate · vinculado a mascota" : "Crate · cliente provee"}
-                            </p>
-                          ) : row.source === "impo" || row.source === "similar" ? (
-                            <p className="font-mono text-[10px] text-zinc-400">
-                              {row.source === "impo" ? "IMPO · " : "Similar · "}
-                              {row.fieldKey}
-                            </p>
-                          ) : null}
-                          <div>
-                            <label
-                              htmlFor={`dc02-latam-desc-${row.id}`}
-                              className={fieldLabelClass}
-                            >
-                              Descripción
-                            </label>
-                            <AutoHeightDescriptionTextarea
-                              id={`dc02-latam-desc-${row.id}`}
-                              value={resolvePlaceholders(row.description, placeholderCtx)}
-                              onChange={(e) =>
-                                updateLatamRow(row.id, {
-                                  description: e.target.value,
-                                })
-                              }
-                              minHeightPx={52}
-                              className={`${inputClass} font-sans`}
-                              placeholder="Texto para el ítem / cotización"
-                            />
-                          </div>
-                          {row.source !== "crate" ? (
-                          <div>
-                            <p className={fieldLabelClass}>Nota interna</p>
-                            {row.internalNote.trim() !== "" ? (
-                              <LinkifiedText
-                                text={row.internalNote}
-                                className="text-[11px] leading-relaxed text-zinc-500"
-                              />
-                            ) : (
-                              <p className="text-[11px] leading-relaxed text-zinc-500">—</p>
-                            )}
-                            {row.priceRef ? (
-                              <p className="mt-1 font-mono text-[10px] text-zinc-400">
-                                Precio ref.: {row.priceRef}
-                              </p>
-                            ) : null}
-
-                          </div>
-                          ) : null}
-                        </div>
-                        {row.source === "crate" && row.petId ? (
-                          <div className="mt-7 flex shrink-0 flex-col gap-1 sm:mt-8">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const petIndex = pets.findIndex((p) => p.id === row.petId);
-                                if (petIndex >= 0) removeCrateFromPet(petIndex);
-                              }}
-                              className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-amber-50 hover:text-amber-700"
-                              aria-label={`Quitar jaula de cotización: ${row.title}`}
-                              title="Quitar como ítem a cotizar (cliente provee)"
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-4 w-4"
-                                aria-hidden
-                              >
-                                <path d="M18 6 6 18" />
-                                <path d="m6 6 12 12" />
-                              </svg>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => excludeCrateRow(row.petId!)}
-                              className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700"
-                              aria-label={`Eliminar ítem por completo: ${row.title}`}
-                              title="Eliminar ítem por completo (restaurable desde la tarjeta de la mascota)"
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-4 w-4"
-                                aria-hidden
-                              >
-                                <path d="M3 6h18" />
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                <line x1="10" x2="10" y1="11" y2="17" />
-                                <line x1="14" x2="14" y1="11" y2="17" />
-                              </svg>
-                            </button>
-                          </div>
-                        ) : row.source === "crate" ? null : (
-                          <button
-                            type="button"
-                            onClick={() => removeLatamRow(row.id)}
-                            className="mt-7 shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700 sm:mt-8"
-                            aria-label={`Quitar ${row.title}`}
-                            title="Eliminar fila"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="h-4 w-4"
-                              aria-hidden
-                            >
-                              <path d="M3 6h18" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                              <line x1="10" x2="10" y1="11" y2="17" />
-                              <line x1="14" x2="14" y1="11" y2="17" />
-                            </svg>
-                          </button>
-                        )}
+                        ))}
                       </div>
-                      );
-                    })}
-                </div>
+                    </SortableContext>
+                    <DragOverlay modifiers={[restrictToVerticalAxis]}>
+                      {activeDragId
+                        ? (() => {
+                            const idx = latamRows.findIndex(
+                              (r) => r.id === activeDragId,
+                            );
+                            const row = latamRows[idx];
+                            return row ? (
+                              <SortableLatamRow
+                                row={row}
+                                rowIdx={idx}
+                                placeholderCtx={placeholderCtx}
+                                updateLatamRow={updateLatamRow}
+                                removeLatamRow={removeLatamRow}
+                                removeCrateFromPet={removeCrateFromPet}
+                                excludeCrateRow={excludeCrateRow}
+                                pets={pets}
+                                isOverlay
+                              />
+                            ) : null;
+                          })()
+                        : null}
+                    </DragOverlay>
+                  </DndContext>
                 </section>
 
                 <section
@@ -5553,6 +5572,31 @@ export default function DemoCoti01Page(): React.JSX.Element {
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
+      {deletedToast ? (
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-zinc-800 px-4 py-3 text-sm text-white shadow-xl">
+          <span>
+            <span className="font-medium">{deletedToast.item.title}</span> eliminado
+          </span>
+          <button
+            type="button"
+            onClick={undoDeleteLatamRow}
+            className="rounded bg-zinc-600 px-2.5 py-1 text-xs font-semibold transition hover:bg-zinc-500"
+          >
+            Deshacer
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (deletedToastTimerRef.current) clearTimeout(deletedToastTimerRef.current);
+              setDeletedToast(null);
+            }}
+            aria-label="Cerrar"
+            className="ml-1 text-zinc-400 transition hover:text-white"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+          </button>
         </div>
       ) : null}
     </main>

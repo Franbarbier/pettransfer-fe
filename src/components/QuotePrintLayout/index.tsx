@@ -1,7 +1,7 @@
 "use client";
 
 import { Montserrat, Fraunces } from "next/font/google";
-import logopng1 from "@/assets/logopng1.png";
+import logooriginal from "@/assets/logooriginal.png";
 import { useCallback, useLayoutEffect, useRef, useState, type ChangeEventHandler, type ReactElement, type TextareaHTMLAttributes } from "react";
 
 function AutoHeightTextarea({
@@ -133,14 +133,14 @@ export { PAGE_H, PAGE_PAD, computePageSlices };
 
 function QuotePrintMain({ data, callbacks }: { data: QuotePrintData; callbacks: QuotePrintCallbacks }): ReactElement {
   return (
-    <div className="w-[794px] flex flex-col" style={{ backgroundColor: "#d6d6cc" }}>
+    <div className="w-[794px] flex flex-col" style={{ backgroundColor: "#f5f5f0" }}>
 
-      <div className="w-full flex justify-center items-center bg-gradient-to-tl from-[#8e8d70] to-[#aeb0a1] h-[145px]">
+      <div className="w-full flex justify-center items-center bg-gradient-to-tl from-[#8e8d70] to-[#aeb0a1]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={logopng1.src} alt="Logo" style={{ width: 185, height: "auto", display: "block" }} />
+        <img src={logooriginal.src} alt="Logo" style={{ display: "block" }} />
       </div>
 
-      <div className="w-full pt-[20px] pb-[10%] px-[7%]" style={{ backgroundColor: "#d6d6cc" }}>
+      <div className="w-full pt-[20px] pb-[10%] px-[7%]" style={{ backgroundColor: "#f5f5f0" }}>
 
         <div data-atomic className="grid grid-cols-2 gap-x-4 gap-y-3">
 
@@ -316,8 +316,8 @@ function QuotePrintMain({ data, callbacks }: { data: QuotePrintData; callbacks: 
 
 function QuotePrintTail({ data, callbacks }: { data: QuotePrintData; callbacks: QuotePrintCallbacks }): ReactElement {
   return (
-    <div className="w-[794px] flex flex-col" style={{ backgroundColor: "#d6d6cc" }}>
-      <div className="w-full px-[7%] pb-4" style={{ backgroundColor: "#d6d6cc" }}>
+    <div className="w-[794px] flex flex-col" style={{ backgroundColor: "#f5f5f0" }}>
+      <div className="w-full px-[7%] pb-4" style={{ backgroundColor: "#f5f5f0" }}>
         <p className={`${montserrat.className} text-[9px] text-zinc-600 uppercase tracking-wide mb-1`}>
           Conditions of contract
         </p>
@@ -328,12 +328,12 @@ function QuotePrintTail({ data, callbacks }: { data: QuotePrintData; callbacks: 
         />
       </div>
 
-      <div className="w-full flex items-center justify-between bg-gradient-to-tl from-[#8e8d70] to-[#aeb0a1] px-[7%] h-[40px]">
-        <span className={`${montserrat.className} text-[9px] font-bold uppercase tracking-widest text-white`}>
+      <div className="w-full flex items-center justify-between bg-gradient-to-tl from-[#00cd00] to-[#ffffff] px-[7%] h-[40px]">
+        <span className={`${montserrat.className} text-[9px] font-bold uppercase tracking-widest text-zinc-900`}>
           LATAM Pet Transport
         </span>
         {data.disclaimerContact && (
-          <span className={`${montserrat.className} text-[9px] text-white`}>
+          <span className={`${montserrat.className} text-[9px] text-zinc-900`}>
             {data.disclaimerContact}
           </span>
         )}
@@ -384,7 +384,7 @@ export function QuotePrintLayout({ data, callbacks }: { data: QuotePrintData; ca
           <div key={i}>
             <div
               className="relative w-[794px] overflow-hidden"
-              style={{ height: PAGE_H, backgroundColor: "#d6d6cc" }}
+              style={{ height: PAGE_H, backgroundColor: "#f5f5f0" }}
             >
               <div
                 style={{
