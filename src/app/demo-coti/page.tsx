@@ -32,14 +32,8 @@ import { BreedCombobox } from "@/components/BreedCombobox";
 import { useBreeds } from "@/hooks/useBreeds";
 import { useItemsOfficial, type OfficialItem } from "@/hooks/useItemsOfficial";
 import { quoteConditions, type TradeDirectionChoice } from "@/lib/quoteConditions";
+import { lookupArgExpoRow, type ArgExpoPrecioRow } from "@/lib/argExpoPrecios";
 import { LinkifiedText } from "@/components/linkified-text";
-import {
-  computeExpoItemPrice,
-  computeImpoItemPrice,
-  toCountryKey,
-  toFormulaKey,
-  type ExpoItemPriceCtx,
-} from "@/lib/expoItemPriceFormulas";
 import {
   type LocationSuggestOption,
   parseLocationSuggestList,
@@ -621,6 +615,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [editVendedorEmail, setEditVendedorEmail] = useState("");
   const [editVendedorSubmitting, setEditVendedorSubmitting] = useState(false);
   const [latamRows, setLatamRows] = useState<LatamFieldRow[]>([]);
+  const [argExpoPrecios, setArgExpoPrecios] = useState<ArgExpoPrecioRow[]>([]);
   /** Claves de filas de crate excluidas explícitamente por el usuario.
    *  Keys: petId (para crate por mascota) o CLIENT_CRATES_FIELD_KEY (fila agregada).
    *  Si una clave está acá, el effect de sync no genera la fila correspondiente. */
@@ -886,6 +881,19 @@ export default function DemoCoti01Page(): React.JSX.Element {
   }, [currentAppSession]);
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/arg-expo-precios`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { precios: ArgExpoPrecioRow[] };
+        setArgExpoPrecios(data.precios);
+      } catch {
+        // degradación silenciosa: el IHC dinámico no se agrega si falla el fetch
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     if (!selectedVendedorId) return;
     try {
       localStorage.setItem(SELECTED_VENDEDOR_STORAGE_KEY, selectedVendedorId);
@@ -995,7 +1003,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       .filter((item) => !usedJson.has(`official_expo_${item.id}`))
       .map((item) => ({
         key: `official_expo_${item.id}`,
-        title: item.item_es || item.item_en,
+        title: item.item_en || item.item_es,
         internalNotePreview: [item.price_ref, item.notes].filter(Boolean).join(" · "),
       }));
   }, [officialExpoItemsForPanel, latamRows]);
@@ -1009,7 +1017,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       .filter((item) => !usedImpo.has(`official_impo_${item.id}`))
       .map((item) => ({
         key: `official_impo_${item.id}`,
-        title: item.item_es || item.item_en,
+        title: item.item_en || item.item_es,
         internalNotePreview: [item.airport, item.price_ref, item.notes].filter(Boolean).join(" · "),
       }));
   }, [officialImpoItems, latamRows]);
@@ -1058,7 +1066,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       .filter((item) => !usedOrphan.has(`orphan_${item.id}`))
       .map((item) => ({
         key: `orphan_${item.id}`,
-        title: item.item_es || item.item_en,
+        title: item.item_en || item.item_es,
         internalNotePreview: [item.country, item.price_ref, item.notes].filter(Boolean).join(" · "),
       }));
   }, [officialOrphanItems, latamRows]);
@@ -1260,23 +1268,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
   }
 
   function resolveOfficialPrice(item: OfficialItem): { price: string; priceRef: string | undefined } {
-    const activePets = pets.slice(0, Math.min(animalCount, pets.length));
-    const ctx: ExpoItemPriceCtx = {
-      animalCount,
-      dogs: activePets.filter((p) => p.tipo === "perro").length,
-      cats: activePets.filter((p) => p.tipo === "gato").length,
-    };
-    if (item.operation_type === "IMPO") {
-      const computed = computeImpoItemPrice(
-        toCountryKey(item.country),
-        (item.airport ?? "").toLowerCase(),
-        toFormulaKey(item.item_en),
-        ctx,
-      );
-      if (computed !== null) return { price: computed, priceRef: item.price_ref ?? undefined };
-    } else {
-      const computed = computeExpoItemPrice(toCountryKey(item.country), toFormulaKey(item.item_en), ctx);
-      if (computed !== null) return { price: computed, priceRef: item.price_ref ?? undefined };
+    const tiers = [item.price_1, item.price_2, item.price_3, item.price_4].filter((v) => v != null);
+    if (tiers.length > 0) {
+      const value = tiers[Math.min(animalCount - 1, tiers.length - 1)];
+      return { price: value ?? "", priceRef: item.price_ref ?? undefined };
     }
     const pr = item.price_ref;
     if (pr?.toLowerCase().includes("siempre")) {
@@ -1298,9 +1293,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
           source: "impo",
           fieldKey: key,
           officialUuid: item.uuid,
-          title: item.item_es || item.item_en,
+          title: item.item_en || item.item_es,
           price,
-          description: item.description_es ?? item.description_en ?? "",
+          description: item.description_en ?? item.description_es ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         },
@@ -1341,9 +1336,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
           source: "custom",
           fieldKey: orphanKey,
           officialUuid: item.uuid,
-          title: item.item_es || item.item_en,
+          title: item.item_en || item.item_es,
           price,
-          description: item.description_es ?? item.description_en ?? "",
+          description: item.description_en ?? item.description_es ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         },
@@ -1370,9 +1365,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
           source: "impo",
           fieldKey: key,
           officialUuid: item.uuid,
-          title: item.item_es || item.item_en,
+          title: item.item_en || item.item_es,
           price,
-          description: item.description_es ?? item.description_en ?? "",
+          description: item.description_en ?? item.description_es ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1398,9 +1393,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
             source: "json" as const,
             fieldKey: jsonKey,
             officialUuid: item.uuid,
-            title: item.item_es || item.item_en,
+            title: item.item_en || item.item_es,
             price,
-            description: item.description_es ?? item.description_en ?? "",
+            description: item.description_en ?? item.description_es ?? "",
             internalNote: item.notes ?? "",
             priceRef,
           };
@@ -1434,9 +1429,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
           source: "json",
           fieldKey: key,
           officialUuid: item.uuid,
-          title: item.item_es || item.item_en,
+          title: item.item_en || item.item_es,
           price,
-          description: item.description_es ?? item.description_en ?? "",
+          description: item.description_en ?? item.description_es ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1452,9 +1447,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
           source: "custom",
           fieldKey: `condition_${uuid}`,
           officialUuid: uuid,
-          title: item.item_es || item.item_en,
+          title: item.item_en || item.item_es,
           price,
-          description: item.description_es ?? item.description_en ?? "",
+          description: item.description_en ?? item.description_es ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1582,9 +1577,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
           source: "impo",
           fieldKey: key,
           officialUuid: item.uuid,
-          title: item.item_es || item.item_en,
+          title: item.item_en || item.item_es,
           price,
-          description: item.description_es ?? item.description_en ?? "",
+          description: item.description_en ?? item.description_es ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1696,6 +1691,30 @@ export default function DemoCoti01Page(): React.JSX.Element {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animalCount]);
+
+  /** Cuando la condición expo-arg-latam-usa-eu está activa, actualiza precio e internalNote
+   *  del item "International Health Certificate" (uuid d1dddc97) con datos de arg_expo_precios. */
+  useEffect(() => {
+    const IHC_UUID = "d1dddc97-4bd5-4ba7-aaae-6ac128ee4f6f";
+    const isActive = matchedConditions.some(
+      (c) => c.id === "expo-arg-latam-usa-eu-international-health-certificate",
+    );
+    if (!isActive || argExpoPrecios.length === 0) return;
+
+    const found = lookupArgExpoRow(debouncedDest, animalCount, argExpoPrecios);
+    if (!found) return;
+
+    setLatamRows((prev) => {
+      const idx = prev.findIndex((r) => r.officialUuid === IHC_UUID);
+      if (idx === -1) return prev;
+      const row = prev[idx];
+      if (row.price === found.precio_usd && row.internalNote === (found.notas ?? "")) return prev;
+      const next = [...prev];
+      next[idx] = { ...row, price: found.precio_usd, internalNote: found.notas ?? "" };
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedConditions, animalCount, debouncedDest, argExpoPrecios, officialExpoMatchedPais]);
 
   /** Copia título, descripción (nota + detalles) y precio de un ítem de cotización similar al presupuesto PDF. */
   function addSimilarQuoteItemToPdf(q: QuoteRow, it: QuoteItemJson): void {
@@ -4100,7 +4119,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                   <li key={item.id} className="flex items-center justify-between gap-2">
                                     <div className="min-w-0 flex-1">
                                       <span className="text-[11px] text-zinc-700">
-                                        {item.item_es || item.item_en}
+                                        {item.item_en || item.item_es}
                                       </span>
                                       {(item.price_ref ?? item.notes) ? (
                                         <span className="ml-2 font-mono text-[10px] text-zinc-400">
@@ -4261,7 +4280,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         <li key={item.id} className="flex items-center justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <span className="text-[11px] text-zinc-700">
-                              {item.item_es || item.item_en}
+                              {item.item_en || item.item_es}
                             </span>
                             {(item.price_ref ?? item.notes) ? (
                               <span className="ml-2 font-mono text-[10px] text-zinc-400">
@@ -4274,7 +4293,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             onClick={() => addLatamJsonRow(itemKey)}
                             disabled={alreadyAdded}
                             className="shrink-0 rounded border border-emerald-600/60 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label={`Añadir ${item.item_es || item.item_en} al presupuesto`}
+                            aria-label={`Añadir ${item.item_en || item.item_es} al presupuesto`}
                           >
                             {alreadyAdded ? "✓" : "+"}
                           </button>

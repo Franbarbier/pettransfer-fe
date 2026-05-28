@@ -66,8 +66,7 @@ export const quoteConditions: QuoteCondition[] = [
     removeItemUuids: [
       "f7ec58b1-0d6d-4b2f-917c-d8a64710c657", // Veterinary Fees (Argentina EXPO)
     ],
-    addItemUuids: [
-      "c2eb0178-12e3-4a0d-853d-40f26de4cbf0", // International Health Certificate (orphan)
-    ],
+    addItemUuids: [],
+    // precio e notas del IHC (d1dddc97) se actualizan dinámicamente en demo-coti desde arg_expo_precios
   },
 ];

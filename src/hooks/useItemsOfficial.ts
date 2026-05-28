@@ -14,6 +14,10 @@ export type OfficialItem = {
   item_en: string;
   item_es: string;
   price_ref: string | null;
+  price_1: string | null;
+  price_2: string | null;
+  price_3: string | null;
+  price_4: string | null;
   description_en: string | null;
   description_es: string | null;
   notes: string | null;
