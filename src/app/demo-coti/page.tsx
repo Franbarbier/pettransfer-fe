@@ -38,7 +38,11 @@ import {
   type LocationSuggestOption,
   parseLocationSuggestList,
 } from "@/lib/quoteLocationSuggestions";
-import { getApiBaseUrl } from "@/services/api";
+import {
+  getApiBaseUrl,
+  resolveEmailTemplate,
+  type EmailTemplateContext,
+} from "@/services/api";
 import {
   type FolderMatch,
   searchYaCotizados,
@@ -908,10 +912,18 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const [emailCc, setEmailCc] = useState("");
   const [emailDownloadPdf, setEmailDownloadPdf] = useState(true);
   const [emailSending, setEmailSending] = useState(false);
   const [emailResult, setEmailResult] = useState<"ok" | "error" | null>(null);
   const [emailError, setEmailError] = useState("");
+  const [emailTemplateLoading, setEmailTemplateLoading] = useState(false);
+  const [emailTemplateCode, setEmailTemplateCode] = useState("");
+  const [ccRecommendedAgent, setCcRecommendedAgent] = useState(false);
+  const [tipoOperacion, setTipoOperacion] = useState<"EXPO" | "IMPO">("EXPO");
+  const [referidoStarwood, setReferidoStarwood] = useState(false);
+  const [recommendedAgentName, setRecommendedAgentName] = useState("");
+  const [recommendedAgentEmail, setRecommendedAgentEmail] = useState("");
   const [threadResults, setThreadResults] = useState<EmailThread[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadSearchError, setThreadSearchError] = useState("");
@@ -2724,28 +2736,81 @@ export default function DemoCoti01Page(): React.JSX.Element {
     openEmailDrawer();
   }
 
+  function parseLoc(loc: string): { city: string; country: string } {
+    const parts = loc.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      return { city: parts.slice(0, parts.length - 1).join(", "), country: parts[parts.length - 1] };
+    }
+    return { city: "", country: parts[0] ?? "" };
+  }
+
+  function buildPetTypeLabel(petsList: PetRow[], count: number): string {
+    const active = petsList.slice(0, count);
+    const dogs = active.filter((p) => p.tipo === "perro").length;
+    const cats = active.filter((p) => p.tipo === "gato").length;
+    if (dogs > 0 && cats === 0) return dogs === 1 ? "dog" : "dogs";
+    if (cats > 0 && dogs === 0) return cats === 1 ? "cat" : "cats";
+    return count === 1 ? "pet" : "pets";
+  }
+
+  const LATAM_COVERED = new Set(["argentina","brazil","brasil","mexico","méxico","costa rica","paraguay","uruguay","bolivia","chile","colombia","ecuador"]);
+
+  function buildTemplateContext(): EmailTemplateContext {
+    const { country: destCountry } = parseLoc(destination);
+    const lower = destCountry.toLowerCase().trim();
+    const paisDestino: "argentina" | "mexico" | "otro" =
+      lower === "argentina" ? "argentina" :
+      (lower === "mexico" || lower === "méxico") ? "mexico" : "otro";
+    const destCubierto = LATAM_COVERED.has(lower);
+    const clienteEsAgente = agentName.trim().length > 0;
+
+    return {
+      tipo_operacion: tipoOperacion,
+      tipo_cliente: clienteEsAgente ? "agente" : "retail",
+      referido_starwood: clienteEsAgente ? null : referidoStarwood,
+      destino_cubierto_latam: tipoOperacion === "IMPO" ? null : destCubierto,
+      pais_destino: tipoOperacion === "EXPO" ? null : paisDestino,
+    };
+  }
+
+  async function fetchAndApplyTemplate(): Promise<void> {
+    setEmailTemplateLoading(true);
+    try {
+      const { city: originCity, country: originCountry } = parseLoc(origin);
+      const { city: destCity, country: destCountry } = parseLoc(destination);
+      const resolved = await resolveEmailTemplate(buildTemplateContext(), {
+        client_name: customerName.trim(),
+        pet_type: buildPetTypeLabel(pets, animalCount),
+        origin_city: originCity,
+        destination_city: destCity,
+        origin_country: originCountry,
+        destination_country: destCountry,
+        recommended_agent: recommendedAgentName.trim(),
+      });
+      setEmailBody(resolved.body);
+      setEmailTemplateCode(resolved.template_code);
+      setCcRecommendedAgent(resolved.cc_recommended_agent);
+      if (resolved.cc_recommended_agent && recommendedAgentEmail.trim()) {
+        setEmailCc(recommendedAgentEmail.trim());
+      }
+    } catch (e: unknown) {
+      console.error("[demo-coti] Error resolviendo template de mail:", e instanceof Error ? e.message : e);
+    } finally {
+      setEmailTemplateLoading(false);
+    }
+  }
+
   function openEmailDrawer(): void {
-    const selectedVendedor = vendedores.find((v) => v.id === selectedVendedorId);
     const name = customerName.trim();
     const subject = name
       ? `Cotización LATAM Pet Transport — ${name}`
       : "Cotización LATAM Pet Transport";
-    const vendedorName = selectedVendedor?.name ?? "LATAM Pet Transport";
-    const vendedorEmail = selectedVendedor?.email ?? "";
-    const body = [
-      name ? `Estimado/a ${name},` : "Estimado/a,",
-      "",
-      "Adjunto encontrará la cotización solicitada para el traslado de su mascota.",
-      "",
-      "Quedamos a disposición ante cualquier consulta.",
-      "",
-      `Saludos,`,
-      vendedorName,
-      "LATAM Pet Transport",
-      vendedorEmail,
-    ].join("\n");
     setEmailSubject(subject);
-    setEmailBody(body);
+    setEmailBody("");
+    setEmailCc("");
+    setEmailTemplateCode("");
+    setCcRecommendedAgent(false);
+    setRecommendedAgentName(agentName.trim());
     setEmailResult(null);
     setEmailError("");
     setThreadResults([]);
@@ -2755,6 +2820,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
     setDbxUploadError(null);
     setDbxUploadModalOpen(false);
     setEmailDrawerOpen(true);
+    void fetchAndApplyTemplate();
   }
 
   async function generatePdfBase64(): Promise<string> {
@@ -3002,7 +3068,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const emailRes = await fetch("/api/send-quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: emailTo, pdfBase64, customerName, filename, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
+        body: JSON.stringify({ to: emailTo, cc: emailCc.trim() || undefined, pdfBase64, customerName, filename, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
       });
       if (!emailRes.ok) {
         const data = (await emailRes.json()) as { error?: string };
@@ -5288,6 +5354,83 @@ export default function DemoCoti01Page(): React.JSX.Element {
                     />
                   </div>
 
+                  {/* Contexto del template */}
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                        Tipo de operación
+                        {emailTemplateCode ? <span className="ml-2 normal-case font-normal text-zinc-400">· {emailTemplateCode}</span> : null}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void fetchAndApplyTemplate()}
+                        disabled={emailSending || emailTemplateLoading}
+                        className="text-[11px] font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      >
+                        {emailTemplateLoading ? "Cargando…" : "Regenerar texto"}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <label className="mb-1 block text-[11px] font-medium text-zinc-600">Operación</label>
+                        <select
+                          value={tipoOperacion}
+                          onChange={(e) => setTipoOperacion(e.target.value as "EXPO" | "IMPO")}
+                          disabled={emailSending}
+                          className={`${inputClass} text-xs`}
+                        >
+                          <option value="EXPO">EXPO</option>
+                          <option value="IMPO">IMPO</option>
+                        </select>
+                      </div>
+                      <div className="flex-none pt-4">
+                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${agentName.trim() ? "bg-zinc-200 text-zinc-600" : "bg-blue-100 text-blue-700"}`}>
+                          {agentName.trim() ? "Agente" : "Retail"}
+                        </span>
+                      </div>
+                    </div>
+                    {!agentName.trim() && (
+                      <label className="flex items-center gap-2 text-xs text-zinc-700 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={referidoStarwood}
+                          onChange={(e) => setReferidoStarwood(e.target.checked)}
+                          disabled={emailSending}
+                          className="h-3.5 w-3.5 accent-zinc-700"
+                        />
+                        Referido por Starwood Pet
+                      </label>
+                    )}
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-zinc-600">
+                        Agente recomendado
+                        <span className="ml-1 font-normal text-zinc-400">(nombre en el cuerpo)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={recommendedAgentName}
+                        onChange={(e) => setRecommendedAgentName(e.target.value)}
+                        placeholder="Ej: PetRelocation US"
+                        className={`${inputClass} text-xs`}
+                        disabled={emailSending}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-zinc-600">
+                        Email del agente
+                        <span className="ml-1 font-normal text-zinc-400">(para CC)</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={recommendedAgentEmail}
+                        onChange={(e) => setRecommendedAgentEmail(e.target.value)}
+                        placeholder="agente@empresa.com"
+                        className={`${inputClass} text-xs`}
+                        disabled={emailSending}
+                      />
+                    </div>
+                  </div>
+
                   {/* Responder a mail anterior */}
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
@@ -5384,15 +5527,38 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
                   <div>
                     <label className="mb-1 block text-xs font-medium text-zinc-700">
-                      Cuerpo del email
+                      CC
+                      {ccRecommendedAgent && (
+                        <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">agente recomendado</span>
+                      )}
                     </label>
-                    <textarea
-                      value={emailBody}
-                      onChange={(e) => setEmailBody(e.target.value)}
-                      rows={10}
-                      className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
+                    <input
+                      type="email"
+                      value={emailCc}
+                      onChange={(e) => setEmailCc(e.target.value)}
+                      placeholder="cc@ejemplo.com (opcional)"
+                      className={inputClass}
                       disabled={emailSending}
                     />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-zinc-700">
+                      Cuerpo del email
+                    </label>
+                    {emailTemplateLoading ? (
+                      <div className="flex h-40 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-xs text-zinc-400">
+                        Cargando template…
+                      </div>
+                    ) : (
+                      <textarea
+                        value={emailBody}
+                        onChange={(e) => setEmailBody(e.target.value)}
+                        rows={10}
+                        className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
+                        disabled={emailSending}
+                      />
+                    )}
                   </div>
                 </div>
               )}
@@ -5427,6 +5593,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   onClick={() => void handleSendEmail()}
                   disabled={
                     emailSending ||
+                    emailTemplateLoading ||
                     !emailTo.trim() ||
                     !emailSubject.trim() ||
                     outlookStatusLoading ||

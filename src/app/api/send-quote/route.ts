@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 
 type SendQuoteBody = {
   to: string;
+  cc?: string;
   pdfBase64: string;
   customerName?: string;
   filename?: string;
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body inválido" }, { status: 400 });
   }
 
-  const { to, pdfBase64, customerName, filename, subject: customSubject, body: customBody, replyToMessageId } = body;
+  const { to, cc, pdfBase64, customerName, filename, subject: customSubject, body: customBody, replyToMessageId } = body;
 
   if (!to || !pdfBase64) {
     return NextResponse.json(
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
             subject,
             body: { contentType: "Text", content: bodyContent },
             toRecipients: [{ emailAddress: { address: to } }],
+            ...(cc?.trim() ? { ccRecipients: [{ emailAddress: { address: cc.trim() } }] } : {}),
             attachments: [attachment],
           },
           saveToSentItems: true,
