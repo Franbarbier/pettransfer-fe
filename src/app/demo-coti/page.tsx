@@ -3,12 +3,9 @@
 import Image from "next/image";
 import {
   Fragment,
-  type ChangeEventHandler,
   type ReactElement,
-  type TextareaHTMLAttributes,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -67,6 +64,39 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 
+import { AutoHeightDescriptionTextarea } from "@/components/AutoHeightDescriptionTextarea";
+import { UserFieldIcon } from "@/components/UserFieldIcon";
+import { useDebounced } from "@/hooks/useDebounced";
+import type {
+  LatamFieldRow,
+  PetRow,
+  PlaceholderCtx,
+  QuoteItemJson,
+  QuoteRow,
+  RightPaneBudgetLine,
+  VendedorOption,
+} from "@/types/quote";
+import type { AppSessionInfo, EmailThread, OutlookMailStatus } from "@/types/email";
+import { todayLocalIsoDate, formatIsoDateAsSpanishLong } from "@/utils/dates";
+import {
+  formatVendedorDisclaimer,
+  quoteAnimalsDisplay,
+  sumDigitsInText,
+  stripFooterFromQuotes,
+  parseBudgetAmount,
+  extractIataCode,
+  resolvePlaceholders,
+} from "@/utils/quoteFormatters";
+import { latamRowThemeClasses, newLatamRowId, truncateForOption } from "@/utils/latamRowUtils";
+import {
+  CUSTOM_CRATE_ID,
+  CLIENT_CRATES_FIELD_KEY,
+  emptyPet,
+  formatAnimalsLine,
+  buildPetTypeLabel,
+} from "@/utils/petUtils";
+import { parseLoc, LATAM_COVERED_COUNTRIES } from "@/utils/locationUtils";
+
 const apiBase = getApiBaseUrl().replace(/\/$/, "");
 
 const INITIAL_DISCLAIMER_CONTRACT =
@@ -74,19 +104,8 @@ const INITIAL_DISCLAIMER_CONTRACT =
   "b. Prices charged by third parties may vary, in which case we will inform if there are any variation in the customer's charges.\n" +
   "c. Payment: 100% in advance";
 
-type VendedorOption = {
-  id: string;
-  name: string;
-  email: string;
-};
-
 /** Clave en localStorage para recordar el último vendedor seleccionado (solo el id). */
 const SELECTED_VENDEDOR_STORAGE_KEY = "demo-coti:selected-salesperson";
-
-/** Formato fijo de la línea "Contact" en el PDF con los datos del vendedor elegido. */
-function formatVendedorDisclaimer(v: VendedorOption): string {
-  return `${v.name} — ${v.email}`;
-}
 
 const INITIAL_DISCLAIMER_CONTACT =
   "Mariela Gherghi — mariela@latampettransport.com";
@@ -119,457 +138,12 @@ const pdfDisclaimerAreaClass = `${pdfPlainClass} block w-full resize-y text-[10p
 
 const MAX_ANIMALS = 20;
 
-/** Devuelve la fecha local de hoy en formato YYYY-MM-DD para `<input type="date">`. */
-function todayLocalIsoDate(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-const SPANISH_MONTHS_LONG = [
-  "Enero",
-  "Febrero",
-  "Marzo",
-  "Abril",
-  "Mayo",
-  "Junio",
-  "Julio",
-  "Agosto",
-  "Septiembre",
-  "Octubre",
-  "Noviembre",
-  "Diciembre",
-];
-
-/**
- * Formatea una fecha YYYY-MM-DD como "Mes Día, Año" en español
- * (ej. "Agosto 16, 2026"). Si la fecha es inválida o vacía devuelve "".
- */
-function formatIsoDateAsSpanishLong(iso: string): string {
-  if (!iso) return "";
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
-  if (!m) return "";
-  const year = Number(m[1]);
-  const month = Number(m[2]);
-  const day = Number(m[3]);
-  if (!month || month < 1 || month > 12) return "";
-  if (!day || day < 1 || day > 31) return "";
-  return `${SPANISH_MONTHS_LONG[month - 1]} ${day}, ${year}`;
-}
-
-const CUSTOM_CRATE_ID = "__custom_crate__";
-const CLIENT_CRATES_FIELD_KEY = "crate-client-provided";
-
-type PetRow = {
-  id: string;
-  tipo: "" | "perro" | "gato";
-  raza: string;
-  nombre: string;
-  crateId: string;
-  /** Tamaño libre cuando crateId === CUSTOM_CRATE_ID. */
-  customCrateSize: string;
-  costo: string;
-  /**
-   * Si `true`, esta mascota viaja con crate cotizado (se muestra el selector
-   * de tamaño/valor y se emite una línea de crate en el PDF). Si `false`, no
-   * se cotiza crate para este animal.
-   */
-  hasCrate: boolean;
-  /**
-   * Solo relevante en IMPO. Indica si el operador ya decidió que hay jaula
-   * (sea provista por cliente o por LATAM). `false` = estado A "sin jaula"
-   * (no aparece la columna de crate). Cuando `hasCrate=true` se asume `true`.
-   * En EXPO se ignora — siempre hay jaula.
-   */
-  crateRegistered: boolean;
-};
-
-type QuoteItemDetailJson = {
-  detail_order: number;
-  detail_text: string;
-};
-
-type QuoteItemJson = {
-  quote_item_id: string;
-  quote_id: string;
-  item_number: number | null;
-  display_order: number;
-  item_name_raw: string;
-  item_catalog_id: string;
-  item_display_name: string;
-  price_raw: string;
-  price_amount: string;
-  currency: string;
-  inline_note: string | null;
-  is_zero_priced: boolean;
-  crate_size: number | null;
-  details: QuoteItemDetailJson[];
-};
-
-type QuoteRow = {
-  import_key: string;
-  source_filename: string;
-  source_sheet: string | null;
-  customer_name: string | null;
-  origin: string | null;
-  destination: string | null;
-  formatted_origin?: string | null;
-  formatted_destination?: string | null;
-  quotation_date_raw: string | null;
-  formatted_quotation_date: string | null;
-  travel_date_raw: string | null;
-  formatted_travel_date: string | null;
-  /** DB: `animals_description` o, si vacío, `animals_raw` (import). */
-  animals_raw?: string | null;
-  animals_count?: number | null;
-  animals_description?: string | null;
-  quoted_total_raw: string | null;
-  quoted_total_amount: string | null;
-  currency: string | null;
-  shipment_mode: string | null;
-  created_at: string;
-  items?: QuoteItemJson[];
-};
-
-type OutlookMailStatus = {
-  configured: boolean;
-  connected: boolean;
-  email?: string;
-  displayName?: string;
-  error?: string;
-};
-
-type EmailThread = {
-  id: string;
-  subject: string;
-  conversationId: string;
-  receivedDateTime: string;
-  isDraft: boolean;
-  from: { emailAddress: { name: string; address: string } };
-};
-
-type AppSessionInfo = {
-  email: string;
-  name: string;
-  provider: "microsoft";
-  issuedAt: number;
-  expiresAt: number;
-  microsoftScope?: string;
-};
-
-function quoteAnimalsDisplay(q: QuoteRow): string {
-  const desc = q.animals_description?.trim();
-  if (desc) return desc;
-  const raw = q.animals_raw?.trim();
-  if (raw) return raw;
-  const n = q.animals_count;
-  if (typeof n === "number" && Number.isFinite(n) && n > 0) {
-    return n === 1 ? "1 animal" : `${n} animales`;
-  }
-  return "—";
-}
-
-/** Suma todos los enteros que aparecen en el texto (ej. "1 perro y 1 gato" → 2). */
-function sumDigitsInText(text: string): number {
-  const matches = text.match(/\d+/g);
-  if (!matches) return 0;
-  return matches.reduce((acc, s) => acc + parseInt(s, 10), 0);
-}
-
-/**
- * Marca el inicio del footer del XLS original; todo lo que aparece desde acá suele
- * ser condiciones genéricas que se importan mal como ítems/detalles.
- */
-const QUOTE_FOOTER_TRIGGER = "conditions of contract";
-
-function containsQuoteFooterTrigger(value: string | null | undefined): boolean {
-  if (!value) return false;
-  return value.toLowerCase().includes(QUOTE_FOOTER_TRIGGER);
-}
-
-/**
- * Recorta el array de ítems (ya ordenado por `display_order`) en cuanto aparece
- * el texto del footer. Si el match está en el título o la nota del ítem,
- * descarta ese ítem y los siguientes. Si el match está en un `detail`,
- * descarta los `details` desde ese punto y también los ítems posteriores.
- */
-function stripQuoteItemsAfterFooter(
-  items: QuoteItemJson[] | undefined | null,
-): QuoteItemJson[] {
-  if (!Array.isArray(items) || items.length === 0) return [];
-  const sorted = [...items].sort((a, b) => a.display_order - b.display_order);
-  const result: QuoteItemJson[] = [];
-  for (const it of sorted) {
-    if (
-      containsQuoteFooterTrigger(it.item_name_raw) ||
-      containsQuoteFooterTrigger(it.item_display_name) ||
-      containsQuoteFooterTrigger(it.inline_note)
-    ) {
-      return result;
-    }
-    const detailsSorted = [...(it.details ?? [])].sort(
-      (a, b) => a.detail_order - b.detail_order,
-    );
-    const cutIdx = detailsSorted.findIndex((d) =>
-      containsQuoteFooterTrigger(d.detail_text),
-    );
-    if (cutIdx === -1) {
-      result.push(it);
-      continue;
-    }
-    const trimmedDetails = detailsSorted.slice(0, cutIdx);
-    result.push({ ...it, details: trimmedDetails });
-    return result;
-  }
-  return result;
-}
-
-function stripFooterFromQuotes(quotes: QuoteRow[]): QuoteRow[] {
-  return quotes.map((q) => ({
-    ...q,
-    items: stripQuoteItemsAfterFooter(q.items),
-  }));
-}
-
-function emptyPet(): PetRow {
-  return {
-    id: crypto.randomUUID(),
-    tipo: "",
-    raza: "",
-    nombre: "",
-    crateId: "",
-    customCrateSize: "",
-    costo: "",
-    hasCrate: false,
-    crateRegistered: false,
-  };
-}
 
 
-type LatamFieldRow = {
-  id: string;
-  source: "json" | "custom" | "impo" | "similar" | "transito" | "crate";
-  /** Clave JSON (`vet_fees`) o id único para filas custom. */
-  fieldKey: string;
-  /** UUID estable del ítem en items_official (cuando aplica). */
-  officialUuid?: string;
-  title: string;
-  price: string;
-  /** Texto de ítem / al cliente. */
-  description: string;
-  /** Referencia operativa (contenido que venía del JSON como aclaración). */
-  internalNote: string;
-  /** Precio de referencia de la tabla items_official (solo lectura, no va al PDF). */
-  priceRef?: string;
-  /** Solo para source === "crate": pet.id estable para matching. */
-  petId?: string;
-  /** Solo para source === "crate": crateId al momento del último sync (para detectar cambios). */
-  syncedCrateId?: string;
-};
 
-/**
- * Clases de color para distinguir ítems del presupuesto según su origen.
- * Las mismas tintas se usan en los paneles IMPO/EXPO para que el usuario
- * asocie visualmente el ítem con la fuente de donde salió.
- *
- * - `impo`  → sky (celeste) — templates IMPO por destino.
- * - `json`  → violet (violeta) — guía EXPO por origen (JSON LATAM).
- * - `custom` / `similar` → gris neutro (sin tinta).
- */
-function latamRowThemeClasses(source: LatamFieldRow["source"]): string {
-  switch (source) {
-    case "crate":
-      return "border-amber-200 bg-amber-50/70 ring-amber-100/80";
-    case "impo":
-      return "border-sky-200 bg-sky-50/70 ring-sky-100/80";
-    case "json":
-      return "border-violet-200 bg-violet-50/70 ring-violet-100/80";
-    case "transito":
-      return "border-emerald-200 bg-emerald-50/70 ring-emerald-100/80";
-    case "similar":
-    case "custom":
-    default:
-      return "border-zinc-200/90 bg-zinc-50/40 ring-zinc-100/80";
-  }
-}
-
-type RightPaneBudgetLine =
-  | {
-      kind: "latam";
-      id: string;
-      rowId: string;
-      title: string;
-      description: string;
-      price: string;
-      /** Poblado solo para líneas de crate (source === "crate"). */
-      petId?: string;
-    }
-  | {
-      kind: "pet";
-      id: string;
-      petIndex: number;
-      title: string;
-      description: string;
-      price: string;
-    };
 
 const LATAM_CUSTOM_SELECT_VALUE = "__custom__";
 const LATAM_ORPHAN_CREATE_VALUE = "__orphan_create__";
-
-function newLatamRowId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `latam-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-}
-
-
-function truncateForOption(s: string, max: number): string {
-  const t = s.trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, Math.max(0, max - 1))}…`;
-}
-
-/** Mismo dibujo que `src/assets/icons/user-svgrepo-com.svg`. */
-function UserFieldIcon({ className }: { className?: string }): React.JSX.Element {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <circle cx="12" cy="6" r="4" fill="currentColor" />
-      <path
-        d="M20 17.5C20 19.9853 20 22 12 22C4 22 4 19.9853 4 17.5C4 15.0147 7.58172 13 12 13C16.4183 13 20 15.0147 20 17.5Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function formatAnimalsLine(count: number, petsList: PetRow[]): string {
-  if (count <= 0) return "—";
-  const rows = petsList.slice(0, count);
-  const parts = rows.map((p, i) => {
-    const tipoLabel =
-      p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet";
-    const name = p.nombre.trim() || `#${i + 1}`;
-    const raza = p.raza.trim();
-    const core = `${tipoLabel} · ${name}`;
-    return raza ? `${core} (${raza})` : core;
-  });
-  const line = parts.join(" | ");
-  return line || `${count} animal(s)`;
-}
-
-/** Suma importes tipo "270", "270 USD", "1.234,56" (aprox.). */
-function parseBudgetAmount(s: string): number | null {
-  const t = s.trim();
-  if (!t || t === "—") return null;
-  const noSpace = t.replace(/\s/g, "");
-  const commaDecimal =
-    /^-?[\d.]+,\d{1,2}$/.test(noSpace) && noSpace.includes(",")
-      ? noSpace.replace(/\./g, "").replace(",", ".")
-      : noSpace.replace(/,/g, "");
-  const m = commaDecimal.match(/-?\d+(?:\.\d+)?/);
-  if (!m) return null;
-  const n = parseFloat(m[0]);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Extrae código IATA (3 letras mayúsculas) de un campo de texto. Si no encuentra, devuelve el texto completo. */
-function extractIataCode(text: string): string {
-  const t = text.trim();
-  if (!t) return t;
-  const paren = t.match(/\(([A-Z]{3})\)/);
-  if (paren) return paren[1];
-  const word = t.match(/\b([A-Z]{3})\b/);
-  if (word) return word[1];
-  return t;
-}
-
-type PlaceholderCtx = {
-  origen: string;
-  destino: string;
-  codigoAeropuerto: string;
-  codigoOrigen: string;
-  codigoDestino: string;
-  cantidadJaulas: string;
-  tamano: string;
-  tamanoJaulas: string;
-  petsDesc: string;
-  aerolinea: string;
-};
-
-function resolvePlaceholders(text: string, ctx: PlaceholderCtx): string {
-  return text
-    .replace(/\[ORIGEN\]/g, ctx.origen || "[ORIGEN]")
-    .replace(/\[destino\]/g, ctx.destino || "[destino]")
-    .replace(/\[código aeropuerto\]/g, ctx.codigoAeropuerto)
-    .replace(/\[codigo origen\]/g, ctx.codigoOrigen)
-    .replace(/\[codigo destino\]/g, ctx.codigoDestino)
-    .replace(/\[cantidad de jaulas\]/g, ctx.cantidadJaulas || "[cantidad de jaulas]")
-    .replace(/\[tamaño\]/g, ctx.tamano || "[tamaño]")
-    .replace(/\[tamaño de jaulas\]/g, ctx.tamanoJaulas || "[tamaño de jaulas]")
-    .replace(/\[cantidad y tipo de mascotas\]/g, ctx.petsDesc || "[cantidad y tipo de mascotas]")
-    .replace(/\[aerolinea\]/g, ctx.aerolinea || "[aerolinea]");
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return debounced;
-}
-
-/** Altura del textarea según el contenido (sin scroll interno). */
-function AutoHeightDescriptionTextarea({
-  className,
-  minHeightPx = 44,
-  value,
-  onChange,
-  style,
-  ...rest
-}: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "rows" | "onChange"> & {
-  value: string;
-  onChange: ChangeEventHandler<HTMLTextAreaElement>;
-  minHeightPx?: number;
-}): ReactElement {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const v = value ?? "";
-
-  const resize = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.max(el.scrollHeight, minHeightPx)}px`;
-  }, [minHeightPx]);
-
-  useLayoutEffect(() => {
-    resize();
-  }, [v, resize]);
-
-  return (
-    <textarea
-      ref={ref}
-      rows={1}
-      value={v}
-      onChange={(e) => {
-        onChange(e);
-        requestAnimationFrame(resize);
-      }}
-      className={className}
-      style={{ overflow: "hidden", resize: "none", ...style }}
-      {...rest}
-    />
-  );
-}
 
 
 type SortableLatamRowProps = {
@@ -2736,32 +2310,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
     openEmailDrawer();
   }
 
-  function parseLoc(loc: string): { city: string; country: string } {
-    const parts = loc.split(",").map((s) => s.trim()).filter(Boolean);
-    if (parts.length >= 2) {
-      return { city: parts.slice(0, parts.length - 1).join(", "), country: parts[parts.length - 1] };
-    }
-    return { city: "", country: parts[0] ?? "" };
-  }
-
-  function buildPetTypeLabel(petsList: PetRow[], count: number): string {
-    const active = petsList.slice(0, count);
-    const dogs = active.filter((p) => p.tipo === "perro").length;
-    const cats = active.filter((p) => p.tipo === "gato").length;
-    if (dogs > 0 && cats === 0) return dogs === 1 ? "dog" : "dogs";
-    if (cats > 0 && dogs === 0) return cats === 1 ? "cat" : "cats";
-    return count === 1 ? "pet" : "pets";
-  }
-
-  const LATAM_COVERED = new Set(["argentina","brazil","brasil","mexico","méxico","costa rica","paraguay","uruguay","bolivia","chile","colombia","ecuador"]);
-
   function buildTemplateContext(): EmailTemplateContext {
     const { country: destCountry } = parseLoc(destination);
     const lower = destCountry.toLowerCase().trim();
     const paisDestino: "argentina" | "mexico" | "otro" =
       lower === "argentina" ? "argentina" :
       (lower === "mexico" || lower === "méxico") ? "mexico" : "otro";
-    const destCubierto = LATAM_COVERED.has(lower);
+    const destCubierto = LATAM_COVERED_COUNTRIES.has(lower);
     const clienteEsAgente = agentName.trim().length > 0;
 
     return {
