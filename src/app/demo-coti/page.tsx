@@ -29,6 +29,10 @@ import {
   resolveCrateCountryKey,
 } from "@/lib/crateTariffsByCountry";
 import { BreedCombobox } from "@/components/BreedCombobox";
+import { EmailAutocomplete } from "@/components/EmailAutocomplete";
+import { EmailTagInput } from "@/components/EmailTagInput";
+import { RichTextEditor } from "@/components/RichTextEditor";
+import { plainTextToHtml } from "@/components/RichTextEditor/plainTextToHtml";
 import { useBreeds } from "@/hooks/useBreeds";
 import { useItemsOfficial, type OfficialItem } from "@/hooks/useItemsOfficial";
 import { quoteConditions, type TradeDirectionChoice } from "@/lib/quoteConditions";
@@ -48,7 +52,9 @@ import {
   searchYaCotizados,
   APP_TESTING_PATH,
 } from "@/lib/dropboxSearch";
+import { buildEmlBase64 } from "@/lib/buildEml";
 import { QuotePrintLayout, type QuotePrintData, type QuotePrintCallbacks } from "@/components/QuotePrintLayout";
+import { type PdfLang } from "@/lib/pdfLabels";
 import {
   DndContext,
   DragOverlay,
@@ -73,6 +79,11 @@ const INITIAL_DISCLAIMER_CONTRACT =
   "a. This price does not include cost of insurance of the animal.\n" +
   "b. Prices charged by third parties may vary, in which case we will inform if there are any variation in the customer's charges.\n" +
   "c. Payment: 100% in advance";
+
+const INITIAL_DISCLAIMER_CONTRACT_ES =
+  "a. Este precio no incluye el costo del seguro del animal.\n" +
+  "b. Los precios cobrados por terceros pueden variar, en cuyo caso informaremos si hay variaciones en los cargos al cliente.\n" +
+  "c. Pago: 100% por adelantado";
 
 type VendedorOption = {
   id: string;
@@ -160,7 +171,6 @@ function formatIsoDateAsSpanishLong(iso: string): string {
 }
 
 const CUSTOM_CRATE_ID = "__custom_crate__";
-const CLIENT_CRATES_FIELD_KEY = "crate-client-provided";
 
 type PetRow = {
   id: string;
@@ -215,6 +225,8 @@ type QuoteRow = {
   customer_name: string | null;
   origin: string | null;
   destination: string | null;
+  fwd?: string | null;
+  notes?: string | null;
   formatted_origin?: string | null;
   formatted_destination?: string | null;
   quotation_date_raw: string | null;
@@ -333,7 +345,7 @@ function stripFooterFromQuotes(quotes: QuoteRow[]): QuoteRow[] {
   }));
 }
 
-function emptyPet(): PetRow {
+function emptyPet(isExpo = false): PetRow {
   return {
     id: crypto.randomUUID(),
     tipo: "",
@@ -342,8 +354,8 @@ function emptyPet(): PetRow {
     crateId: "",
     customCrateSize: "",
     costo: "",
-    hasCrate: false,
-    crateRegistered: false,
+    hasCrate: isExpo,
+    crateRegistered: isExpo,
   };
 }
 
@@ -367,6 +379,12 @@ type LatamFieldRow = {
   petId?: string;
   /** Solo para source === "crate": crateId al momento del último sync (para detectar cambios). */
   syncedCrateId?: string;
+  /** Solo para source === "crate": quién provee la jaula. */
+  crateProvider?: "latam" | "client";
+  title_es?: string;
+  title_en?: string;
+  description_es?: string;
+  description_en?: string;
 };
 
 /**
@@ -403,6 +421,7 @@ type RightPaneBudgetLine =
       title: string;
       description: string;
       price: string;
+      source: LatamFieldRow["source"];
       /** Poblado solo para líneas de crate (source === "crate"). */
       petId?: string;
     }
@@ -451,14 +470,18 @@ function UserFieldIcon({ className }: { className?: string }): React.JSX.Element
   );
 }
 
-function formatAnimalsLine(count: number, petsList: PetRow[]): string {
+function formatAnimalsLine(count: number, petsList: PetRow[], lang: "es" | "en" = "en", breeds: import("@/hooks/useBreeds").Breed[] = []): string {
   if (count <= 0) return "—";
   const rows = petsList.slice(0, count);
   const parts = rows.map((p, i) => {
-    const tipoLabel =
-      p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet";
+    const tipoLabel = lang === "es"
+      ? (p.tipo === "perro" ? "Perro" : p.tipo === "gato" ? "Gato" : "Mascota")
+      : (p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet");
     const name = p.nombre.trim() || `#${i + 1}`;
-    const raza = p.raza.trim();
+    const razaEs = p.raza.trim();
+    const raza = lang === "en" && razaEs
+      ? (breeds.find((b) => b.name_es === razaEs)?.name_en ?? razaEs)
+      : razaEs;
     const core = `${tipoLabel} · ${name}`;
     return raza ? `${core} (${raza})` : core;
   });
@@ -579,7 +602,7 @@ type SortableLatamRowProps = {
   updateLatamRow: (id: string, patch: Partial<Pick<LatamFieldRow, "title" | "price" | "description">>) => void;
   removeLatamRow: (id: string) => void;
   removeCrateFromPet: (petIndex: number) => void;
-  excludeCrateRow: (petId: string) => void;
+  unregisterCrate: (petIndex: number) => void;
   pets: PetRow[];
   isOverlay?: boolean;
 };
@@ -591,7 +614,7 @@ function SortableLatamRow({
   updateLatamRow,
   removeLatamRow,
   removeCrateFromPet,
-  excludeCrateRow,
+  unregisterCrate,
   pets,
   isOverlay = false,
 }: SortableLatamRowProps): ReactElement {
@@ -692,7 +715,7 @@ function SortableLatamRow({
         </div>
         {row.source === "crate" ? (
           <p className="font-mono text-[10px] text-amber-600/70">
-            {row.petId ? "Crate · vinculado a mascota" : "Crate · cliente provee"}
+            {row.crateProvider === "client" ? "Crate · cliente provee" : "Crate · LATAM provee"}
           </p>
         ) : row.source === "impo" || row.source === "similar" ? (
           <p className="font-mono text-[10px] text-zinc-400">
@@ -766,10 +789,13 @@ function SortableLatamRow({
           </button>
           <button
             type="button"
-            onClick={() => excludeCrateRow(row.petId!)}
+            onClick={() => {
+              const petIndex = pets.findIndex((p) => p.id === row.petId);
+              if (petIndex >= 0) unregisterCrate(petIndex);
+            }}
             className="shrink-0 rounded-md p-2 text-zinc-500 transition hover:bg-red-50 hover:text-red-700"
-            aria-label={`Eliminar ítem por completo: ${row.title}`}
-            title="Eliminar ítem por completo (restaurable desde la tarjeta de la mascota)"
+            aria-label={`Quitar jaula de cotización: ${row.title}`}
+            title="Quitar jaula (sin crate en la cotización)"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -822,6 +848,8 @@ function SortableLatamRow({
 export default function DemoCoti01Page(): React.JSX.Element {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
+  const [fwd, setFwd] = useState("");
+  const [notes, setNotes] = useState("");
   const [tradeDirection, setTradeDirection] =
     useState<TradeDirectionChoice>("impo");
   const [transitCountry, setTransitCountry] = useState<"argentina" | "chile">(
@@ -853,7 +881,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
 
   const [customerName, setCustomerName] = useState("");
   const [agentName, setAgentName] = useState("");
-  const [agentOpen, setAgentOpen] = useState(false);
   const [animalCount, setAnimalCount] = useState(1);
   const [pets, setPets] = useState<PetRow[]>([emptyPet()]);
   const [quotedDate, setQuotedDate] = useState(() => todayLocalIsoDate());
@@ -884,8 +911,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
   const [editVendedorSubmitting, setEditVendedorSubmitting] = useState(false);
   const [latamRows, setLatamRows] = useState<LatamFieldRow[]>([]);
   const [argExpoPrecios, setArgExpoPrecios] = useState<ArgExpoPrecioRow[]>([]);
-  /** Claves de filas de crate excluidas explícitamente por el usuario.
-   *  Keys: petId (para crate por mascota) o CLIENT_CRATES_FIELD_KEY (fila agregada).
+  /** Claves de filas de crate excluidas explícitamente por el usuario (petId).
    *  Si una clave está acá, el effect de sync no genera la fila correspondiente. */
   const [excludedCrateKeys, setExcludedCrateKeys] = useState<Set<string>>(() => new Set());
   const [latamCustomFormOpen, setLatamCustomFormOpen] = useState(false);
@@ -908,13 +934,18 @@ export default function DemoCoti01Page(): React.JSX.Element {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(true);
+  const [pdfLang, setPdfLang] = useState<PdfLang>("en");
   const [emailDrawerOpen, setEmailDrawerOpen] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
-  const [emailCc, setEmailCc] = useState("");
+  const [emailCc, setEmailCc] = useState<string[]>([]);
   const [emailDownloadPdf, setEmailDownloadPdf] = useState(true);
   const [emailSending, setEmailSending] = useState(false);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [savingQuote, setSavingQuote] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [emailResult, setEmailResult] = useState<"ok" | "error" | null>(null);
   const [emailError, setEmailError] = useState("");
   const [emailTemplateLoading, setEmailTemplateLoading] = useState(false);
@@ -1554,6 +1585,50 @@ export default function DemoCoti01Page(): React.JSX.Element {
     }
   }
 
+  function updateLatamRowForPdf(
+    rowId: string,
+    patch: Partial<Pick<LatamFieldRow, "title" | "price" | "description">>,
+    lang: PdfLang,
+  ): void {
+    setLatamRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        const next: Partial<LatamFieldRow> = {};
+        if (patch.title !== undefined) {
+          if (lang === "en") next.title_en = patch.title;
+          else next.title_es = patch.title;
+        }
+        if (patch.description !== undefined) {
+          if (lang === "en") next.description_en = patch.description;
+          else next.description_es = patch.description;
+        }
+        if (patch.price !== undefined) next.price = patch.price;
+        return { ...r, ...next };
+      }),
+    );
+    if (patch.price !== undefined) {
+      const row = latamRows.find((r) => r.id === rowId);
+      if (row?.source === "crate" && row.petId) {
+        const petIndex = pets.findIndex((p) => p.id === row.petId);
+        if (petIndex >= 0) {
+          setPets((prev) =>
+            prev.map((p, i) => (i === petIndex ? { ...p, costo: patch.price! } : p)),
+          );
+        }
+      }
+    }
+  }
+
+  function handlePdfLangToggle(): void {
+    const next: PdfLang = pdfLang === "en" ? "es" : "en";
+    setPdfLang(next);
+    if (next === "es" && disclaimerContract === INITIAL_DISCLAIMER_CONTRACT) {
+      setDisclaimerContract(INITIAL_DISCLAIMER_CONTRACT_ES);
+    } else if (next === "en" && disclaimerContract === INITIAL_DISCLAIMER_CONTRACT_ES) {
+      setDisclaimerContract(INITIAL_DISCLAIMER_CONTRACT);
+    }
+  }
+
   function resolveOfficialPrice(item: OfficialItem): { price: string; priceRef: string | undefined } {
     const tiers = [item.price_1, item.price_2, item.price_3, item.price_4].filter((v) => v != null);
     if (tiers.length > 0) {
@@ -1581,8 +1656,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: key,
           officialUuid: item.uuid,
           title: item.item_en || item.item_es,
+          title_en: item.item_en || item.item_es,
+          title_es: item.item_es || item.item_en,
           price,
           description: item.description_en ?? item.description_es ?? "",
+          description_en: item.description_en ?? item.description_es ?? "",
+          description_es: item.description_es ?? item.description_en ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         },
@@ -1624,8 +1703,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: orphanKey,
           officialUuid: item.uuid,
           title: item.item_en || item.item_es,
+          title_en: item.item_en || item.item_es,
+          title_es: item.item_es || item.item_en,
           price,
           description: item.description_en ?? item.description_es ?? "",
+          description_en: item.description_en ?? item.description_es ?? "",
+          description_es: item.description_es ?? item.description_en ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         },
@@ -1653,8 +1736,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: key,
           officialUuid: item.uuid,
           title: item.item_en || item.item_es,
+          title_en: item.item_en || item.item_es,
+          title_es: item.item_es || item.item_en,
           price,
           description: item.description_en ?? item.description_es ?? "",
+          description_en: item.description_en ?? item.description_es ?? "",
+          description_es: item.description_es ?? item.description_en ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1681,8 +1768,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
             fieldKey: jsonKey,
             officialUuid: item.uuid,
             title: item.item_en || item.item_es,
+            title_en: item.item_en || item.item_es,
+            title_es: item.item_es || item.item_en,
             price,
             description: item.description_en ?? item.description_es ?? "",
+            description_en: item.description_en ?? item.description_es ?? "",
+            description_es: item.description_es ?? item.description_en ?? "",
             internalNote: item.notes ?? "",
             priceRef,
           };
@@ -1717,8 +1808,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: key,
           officialUuid: item.uuid,
           title: item.item_en || item.item_es,
+          title_en: item.item_en || item.item_es,
+          title_es: item.item_es || item.item_en,
           price,
           description: item.description_en ?? item.description_es ?? "",
+          description_en: item.description_en ?? item.description_es ?? "",
+          description_es: item.description_es ?? item.description_en ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1735,8 +1830,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: `condition_${uuid}`,
           officialUuid: uuid,
           title: item.item_en || item.item_es,
+          title_en: item.item_en || item.item_es,
+          title_es: item.item_es || item.item_en,
           price,
           description: item.description_en ?? item.description_es ?? "",
+          description_en: item.description_en ?? item.description_es ?? "",
+          description_es: item.description_es ?? item.description_en ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1865,8 +1964,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
           fieldKey: key,
           officialUuid: item.uuid,
           title: item.item_en || item.item_es,
+          title_en: item.item_en || item.item_es,
+          title_es: item.item_es || item.item_en,
           price,
           description: item.description_en ?? item.description_es ?? "",
+          description_en: item.description_en ?? item.description_es ?? "",
+          description_es: item.description_es ?? item.description_en ?? "",
           internalNote: item.notes ?? "",
           priceRef,
         });
@@ -1950,6 +2053,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
     if (tradeDirection !== "transito") {
       setLatamRows((prev) => prev.filter((r) => r.source !== "transito"));
     }
+    if (tradeDirection === "impo" || tradeDirection === "transito") {
+      setFwd("");
+    }
   }, [tradeDirection]);
 
   /** Actualiza precios de items oficiales con tarifas por cantidad cuando cambia animalCount. */
@@ -2004,6 +2110,54 @@ export default function DemoCoti01Page(): React.JSX.Element {
   }, [matchedConditions, animalCount, debouncedDest, argExpoPrecios, officialExpoMatchedPais]);
 
   /** Copia título, descripción (nota + detalles) y precio de un ítem de cotización similar al presupuesto PDF. */
+  function importSimilarQuote(q: QuoteRow): void {
+    setCustomerName(q.customer_name ?? "");
+    setOrigin(q.origin ?? "");
+    setDestination(q.destination ?? "");
+    setFwd(q.fwd ?? "");
+    setNotes(q.notes ?? "");
+
+    const count = Math.max(1, Math.min(q.animals_count ?? 1, MAX_ANIMALS));
+    setAnimalCount(count);
+    setPets(
+      Array.from({ length: count }, () => emptyPet(tradeDirection !== "impo")),
+    );
+
+    const items = [...(q.items ?? [])].sort(
+      (a, b) => a.display_order - b.display_order,
+    );
+    const internalBits = [
+      `Cotización similar · ${q.import_key}`,
+      q.source_filename?.trim(),
+    ].filter(Boolean);
+    const internalNote = internalBits.join(" · ");
+    const rows: LatamFieldRow[] = items.map((it) => {
+      const title = (it.item_name_raw || it.item_display_name || "").trim() || "Ítem";
+      const descParts: string[] = [];
+      if (it.inline_note?.trim()) descParts.push(it.inline_note.trim());
+      const det = [...(it.details ?? [])].sort(
+        (a, b) => a.detail_order - b.detail_order,
+      );
+      for (const d of det) {
+        const t = d.detail_text?.trim();
+        if (t) descParts.push(t);
+      }
+      const price = [it.price_raw || it.price_amount, it.currency]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        id: newLatamRowId(),
+        source: "similar",
+        fieldKey: `similar-${it.quote_item_id}`,
+        title,
+        price,
+        description: descParts.join("\n\n"),
+        internalNote,
+      };
+    });
+    setLatamRows(rows);
+  }
+
   function addSimilarQuoteItemToPdf(q: QuoteRow, it: QuoteItemJson): void {
     const title = (it.item_name_raw || it.item_display_name || "").trim() || "Ítem";
     const descParts: string[] = [];
@@ -2044,74 +2198,77 @@ export default function DemoCoti01Page(): React.JSX.Element {
     [crateTariffsData, origin],
   );
 
-  /** Sincroniza ítems de crate en latamRows (siempre primeros) con el estado de mascotas.
-   *  En IMPO el crate no se cotiza por default; solo aparece si el operador lo agrega
-   *  explícitamente (botón "+" en el panel IMPO o "Agregar crate" en el form de la mascota). */
+  /** Sincroniza ítems de crate en latamRows (siempre primeros) con el estado de mascotas. */
   useEffect(() => {
     setLatamRows((prev) => {
       const nonCrateRows = prev.filter((r) => r.source !== "crate");
-      const isImpo = tradeDirection === "impo";
       const n = Math.min(animalCount, pets.length);
       const existingByPetId = new Map<string, LatamFieldRow>();
-      let existingClientRow: LatamFieldRow | undefined;
       for (const r of prev) {
-        if (r.source !== "crate") continue;
-        if (r.petId) existingByPetId.set(r.petId, r);
-        else if (r.fieldKey === CLIENT_CRATES_FIELD_KEY) existingClientRow = r;
+        if (r.source === "crate" && r.petId) existingByPetId.set(r.petId, r);
       }
       const crateRows: LatamFieldRow[] = [];
-      const clientPets: { pet: PetRow; sizeToken: string }[] = [];
       for (let i = 0; i < n; i++) {
         const p = pets[i];
         if (excludedCrateKeys.has(p.id)) continue;
-        const tipoLabel =
-          p.tipo === "perro" ? "Dog" : p.tipo === "gato" ? "Cat" : "Pet";
-        const name = p.nombre.trim() || `#${i + 1}`;
         const isCustom = p.crateId === CUSTOM_CRATE_ID;
         const crate = isCustom ? null : crateOptionsForOrigin.find((c) => c.id === p.crateId);
         const sizeToken = isCustom ? p.customCrateSize.trim() : (crate?.size_code ?? "");
-        if (p.hasCrate && !!p.crateId) {
+        const sizeLabel = sizeToken ? ` #${sizeToken}` : "";
+        if (p.hasCrate) {
           const existing = existingByPetId.get(p.id);
           const crateIdChanged = existing?.syncedCrateId !== p.crateId;
-          const defaultDesc = formatCrateDescription(sizeToken, "en");
+          const providerChanged = existing?.crateProvider !== "latam";
+          const defaultDescEn = formatCrateDescription(sizeToken, "en");
+          const defaultDescEs = formatCrateDescription(sizeToken, "es");
+          const useDefaultDesc = isCustom || !existing || crateIdChanged || providerChanged;
+          const title = `Crate${sizeLabel}`;
           crateRows.push({
             id: existing?.id ?? newLatamRowId(),
             source: "crate",
             fieldKey: `crate-${p.id}`,
             petId: p.id,
             syncedCrateId: p.crateId,
-            title: `Crate · ${tipoLabel} · ${name}`,
+            crateProvider: "latam",
+            title,
+            title_en: title,
+            title_es: `Jaula${sizeLabel}`,
             price: p.costo,
-            description: isCustom || !existing || crateIdChanged ? defaultDesc : existing.description,
+            description: useDefaultDesc ? defaultDescEn : existing.description,
+            description_en: useDefaultDesc ? defaultDescEn : (existing.description_en ?? existing.description),
+            description_es: useDefaultDesc ? defaultDescEs : (existing.description_es ?? defaultDescEs),
             internalNote: "",
           });
-        } else if (!isImpo || p.crateRegistered) {
-          clientPets.push({ pet: p, sizeToken });
+        } else if (p.crateRegistered && !p.hasCrate) {
+          const existing = existingByPetId.get(p.id);
+          const crateIdChanged = existing?.syncedCrateId !== p.crateId;
+          const providerChanged = existing?.crateProvider !== "client";
+          const title = `Crate${sizeLabel}`;
+          const title_es = `Jaula${sizeLabel}`;
+          const defaultDescEn = `Client will provide crate${sizeLabel}.\nCrate must meet IATA regulations.`;
+          const defaultDescEs = `El cliente proveerá la jaula${sizeLabel}.\nLa jaula debe cumplir con la normativa IATA.`;
+          const useDefault = !existing || crateIdChanged || providerChanged;
+          crateRows.push({
+            id: existing?.id ?? newLatamRowId(),
+            source: "crate",
+            fieldKey: `crate-${p.id}`,
+            petId: p.id,
+            syncedCrateId: p.crateId,
+            crateProvider: "client",
+            title,
+            title_en: title,
+            title_es,
+            price: "0",
+            description: useDefault ? defaultDescEn : existing.description,
+            description_en: useDefault ? defaultDescEn : (existing.description_en ?? existing.description),
+            description_es: useDefault ? defaultDescEs : (existing.description_es ?? defaultDescEs),
+            internalNote: "",
+          });
         }
-      }
-      if (clientPets.length > 0 && !excludedCrateKeys.has(CLIENT_CRATES_FIELD_KEY)) {
-        const count = clientPets.length;
-        const sizes = clientPets.map((cp) => cp.sizeToken.trim()).filter(Boolean);
-        const noun = count === 1 ? "crate" : "crates";
-        const nounCap = count === 1 ? "Crate" : "Crates";
-        const sizesPart = sizes.length > 0 ? ` ${sizes.map((s) => `#${s}`).join(", ")}` : "";
-        const defaultDesc = `Client will provide ${count} ${noun}${sizesPart}.\n${nounCap} must meet IATA regulations.`;
-        const syncKey = `${count}|${clientPets.map((cp) => cp.sizeToken).join(",")}`;
-        const sigChanged = existingClientRow?.syncedCrateId !== syncKey;
-        crateRows.push({
-          id: existingClientRow?.id ?? newLatamRowId(),
-          source: "crate",
-          fieldKey: CLIENT_CRATES_FIELD_KEY,
-          syncedCrateId: syncKey,
-          title: count === 1 ? "Crate · Cliente provee" : `Crates · Cliente provee (${count})`,
-          price: "0",
-          description: !existingClientRow || sigChanged ? defaultDesc : existingClientRow.description,
-          internalNote: "",
-        });
       }
       return [...crateRows, ...nonCrateRows];
     });
-  }, [pets, animalCount, crateOptionsForOrigin, tradeDirection, excludedCrateKeys]);
+  }, [pets, animalCount, crateOptionsForOrigin, excludedCrateKeys]);
 
   /** Vista previa PDF: ítems LATAM (crates ya incluidos primero via latamRows). */
   const rightPaneBudgetLines = useMemo((): RightPaneBudgetLine[] => {
@@ -2119,12 +2276,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
       kind: "latam" as const,
       id: r.id,
       rowId: r.id,
-      title: r.title,
-      description: r.description,
+      title: pdfLang === "en" ? (r.title_en ?? r.title) : (r.title_es ?? r.title),
+      description: pdfLang === "en" ? (r.description_en ?? r.description) : (r.description_es ?? r.description),
       price: r.price,
+      source: r.source,
       petId: r.petId,
     }));
-  }, [latamRows]);
+  }, [latamRows, pdfLang]);
 
   const rightPaneBudgetTotal = useMemo(() => {
     let sum = 0;
@@ -2193,21 +2351,28 @@ export default function DemoCoti01Page(): React.JSX.Element {
     agentName,
     origin,
     destination,
+    fwd,
     quotedDate,
     travelDate,
-    petsLine: formatAnimalsLine(animalCount, pets),
+    petsLine: formatAnimalsLine(animalCount, pets, pdfLang, breeds),
     budgetLines: rightPaneBudgetLines.map((line) => ({
       id: line.id,
       rowId: line.kind === "latam" ? line.rowId : undefined,
       title: line.title,
       description: resolvePlaceholders(line.description, placeholderCtx),
       price: line.price,
+      category:
+        line.kind === "latam" && line.source === "impo"
+          ? ("impo" as const)
+          : line.kind === "latam" && line.source === "json"
+            ? ("expo" as const)
+            : ("other" as const),
     })),
     total: rightPaneBudgetTotal,
     disclaimerContract,
     disclaimerContact,
     salesman: vendedores.find((v) => v.id === selectedVendedorId),
-  }), [customerName, agentName, origin, destination, quotedDate, travelDate, animalCount, pets, rightPaneBudgetLines, rightPaneBudgetTotal, placeholderCtx, disclaimerContract, disclaimerContact, vendedores, selectedVendedorId]);
+  }), [customerName, agentName, origin, destination, fwd, quotedDate, travelDate, animalCount, pets, pdfLang, breeds, rightPaneBudgetLines, rightPaneBudgetTotal, placeholderCtx, disclaimerContract, disclaimerContact, vendedores, selectedVendedorId]);
 
   const detectedCrateCountryKey = useMemo(
     () => resolveCrateCountryKey(origin),
@@ -2264,6 +2429,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
       }),
     );
   }, [pets, crateOptionsForOrigin, crateTariffsData, origin, tradeDirection]);
+
+  useEffect(() => {
+    if (tradeDirection === "impo") return;
+    setPets((prev) =>
+      prev.map((p) =>
+        p.crateRegistered ? p : { ...p, hasCrate: true, crateRegistered: true },
+      ),
+    );
+  }, [tradeDirection]);
 
   useEffect(() => {
     void (async () => {
@@ -2397,6 +2571,9 @@ export default function DemoCoti01Page(): React.JSX.Element {
       if (destWrapRef.current && !destWrapRef.current.contains(t)) {
         setDestOpen(false);
       }
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(t)) {
+        setActionsMenuOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -2460,7 +2637,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       }
       return [
         ...prev,
-        ...Array.from({ length: n - prev.length }, () => emptyPet()),
+        ...Array.from({ length: n - prev.length }, () => emptyPet(tradeDirection !== "impo")),
       ];
     });
   }
@@ -2553,13 +2730,20 @@ export default function DemoCoti01Page(): React.JSX.Element {
     });
   }
 
-  /** IMPO: pasa una mascota del estado A "sin jaula" al estado B "cliente provee". */
+  /** Pasa una mascota del estado "sin jaula" al estado "cliente provee". */
   function registerCrateAsClient(index: number): void {
     setPets((prev) => {
       const next = [...prev];
       const p = next[index];
       if (!p || p.crateRegistered) return prev;
       next[index] = { ...p, crateRegistered: true, hasCrate: false, costo: "" };
+      return next;
+    });
+    setExcludedCrateKeys((prev) => {
+      const target = pets[index]?.id;
+      if (!target || !prev.has(target)) return prev;
+      const next = new Set(prev);
+      next.delete(target);
       return next;
     });
   }
@@ -2585,25 +2769,6 @@ export default function DemoCoti01Page(): React.JSX.Element {
     });
   }
 
-  /** Excluye por completo la fila de crate (por mascota o agregada). */
-  function excludeCrateRow(key: string): void {
-    setExcludedCrateKeys((prev) => {
-      if (prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
-  }
-
-  /** Vuelve a incluir una fila de crate previamente excluida. */
-  function restoreCrateRow(key: string): void {
-    setExcludedCrateKeys((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
-  }
 
   const crateSelectPlaceholder = crateTariffsLoading
     ? "Cargando tarifas de jaula…"
@@ -2716,6 +2881,84 @@ export default function DemoCoti01Page(): React.JSX.Element {
     return { uploadedFilePath, originalFolderPath: folderPath, renamedFolderPath: newPath };
   }
 
+  async function handleDownloadPdfOnly(): Promise<void> {
+    setPdfDownloading(true);
+    try {
+      const pdfBase64 = await generatePdfBase64();
+      const filename = buildQuoteFilename();
+      const link = document.createElement("a");
+      link.href = `data:application/pdf;base64,${pdfBase64}`;
+      link.download = filename;
+      link.click();
+    } catch (e) {
+      console.error("[demo-coti] Error descargando PDF:", e instanceof Error ? e.message : e);
+    } finally {
+      setPdfDownloading(false);
+    }
+  }
+
+  async function handleSaveQuoteOnly(): Promise<void> {
+    setSavingQuote(true);
+    try {
+      const activePets = pets.slice(0, Math.min(animalCount, pets.length));
+      const dogs = activePets.filter((p) => p.tipo === "perro").length;
+      const cats = activePets.filter((p) => p.tipo === "gato").length;
+      const parts: string[] = [];
+      if (dogs > 0) parts.push(`${dogs} perro${dogs > 1 ? "s" : ""}`);
+      if (cats > 0) parts.push(`${cats} gato${cats > 1 ? "s" : ""}`);
+      const animalsDescription =
+        parts.join(" y ") || `${animalCount} mascota${animalCount > 1 ? "s" : ""}`;
+
+      const latamRowsById = new Map(latamRows.map((r) => [r.id, r]));
+      const items = rightPaneBudgetLines.map((line) => {
+        const lineId = line.kind === "latam" ? line.rowId : line.id;
+        const row = line.kind === "latam" ? latamRowsById.get(line.rowId) : undefined;
+        const source =
+          row?.source === "crate"
+            ? "custom"
+            : ((row?.source ?? "custom") as "json" | "custom" | "impo" | "similar");
+        return {
+          fieldKey: row?.fieldKey ?? lineId,
+          title: line.title,
+          description: line.description,
+          price: line.price,
+          source,
+        };
+      });
+
+      const res = await fetch(`${apiBase}/quotes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName,
+          origin,
+          destination,
+          fwd,
+          notes,
+          quotedDate,
+          travelDate,
+          animalsCount: animalCount,
+          animalsDescription,
+          items,
+          totalAmount: rightPaneBudgetTotal,
+          status: "draft",
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Error ${res.status}`);
+      }
+      setEmailResult("ok");
+      setActionsMenuOpen(false);
+    } catch (e) {
+      console.error("[demo-coti] Error guardando cotización:", e instanceof Error ? e.message : e);
+      setEmailError(e instanceof Error ? e.message : String(e));
+      setEmailResult("error");
+    } finally {
+      setSavingQuote(false);
+    }
+  }
+
   function handleSendPdfClick(): void {
     const missing: string[] = [];
     if (!customerName.trim()) missing.push("Cliente");
@@ -2787,11 +3030,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
         destination_country: destCountry,
         recommended_agent: recommendedAgentName.trim(),
       });
-      setEmailBody(resolved.body);
+      setEmailBody(plainTextToHtml(resolved.body));
       setEmailTemplateCode(resolved.template_code);
       setCcRecommendedAgent(resolved.cc_recommended_agent);
       if (resolved.cc_recommended_agent && recommendedAgentEmail.trim()) {
-        setEmailCc(recommendedAgentEmail.trim());
+        setEmailCc([recommendedAgentEmail.trim()]);
       }
     } catch (e: unknown) {
       console.error("[demo-coti] Error resolviendo template de mail:", e instanceof Error ? e.message : e);
@@ -2807,7 +3050,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
       : "Cotización LATAM Pet Transport";
     setEmailSubject(subject);
     setEmailBody("");
-    setEmailCc("");
+    setEmailCc([]);
     setEmailTemplateCode("");
     setCcRecommendedAgent(false);
     setRecommendedAgentName(agentName.trim());
@@ -3068,12 +3311,13 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const emailRes = await fetch("/api/send-quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: emailTo, cc: emailCc.trim() || undefined, pdfBase64, customerName, filename, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
+        body: JSON.stringify({ to: emailTo, cc: emailCc.length > 0 ? emailCc : undefined, pdfBase64, customerName, filename, subject: emailSubject, body: emailBody, replyToMessageId: selectedThread?.id }),
       });
+      const emailResData = (await emailRes.json()) as { ok?: boolean; from?: string; error?: string };
       if (!emailRes.ok) {
-        const data = (await emailRes.json()) as { error?: string };
-        throw new Error(data.error ?? "Error desconocido");
+        throw new Error(emailResData.error ?? "Error desconocido");
       }
+      const senderEmail = emailResData.from ?? "";
 
       // Guardar la quote en la DB
       const activePets = pets.slice(0, Math.min(animalCount, pets.length));
@@ -3105,6 +3349,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
           customerName,
           origin,
           destination,
+          fwd,
+          notes,
           quotedDate,
           travelDate,
           animalsCount: animalCount,
@@ -3123,10 +3369,12 @@ export default function DemoCoti01Page(): React.JSX.Element {
       setAgentName("");
       setOrigin("");
       setDestination("");
+      setFwd("");
+      setNotes("");
       setTravelDate("");
       setAerolinea("");
       setAnimalCount(1);
-      setPets([emptyPet()]);
+      setPets([emptyPet(tradeDirection !== "impo")]);
       setLatamRows([]);
       setDbxUploadModalOpen(true);
       setDbxUploadStatus("uploading");
@@ -3147,6 +3395,31 @@ export default function DemoCoti01Page(): React.JSX.Element {
           const match = searchResult.matches[0];
           setDbxMatchedFolderName(match.name);
           const revertData = await uploadAndTagYaCotizados(pdfBase64, match);
+
+          // Subir .eml junto al PDF (falla silenciosa para no bloquear el flujo)
+          try {
+            const emlBase64 = buildEmlBase64({
+              from: senderEmail,
+              to: emailTo,
+              cc: emailCc.length > 0 ? emailCc.join(", ") : undefined,
+              subject: emailSubject,
+              body: emailBody,
+              attachmentBase64: pdfBase64,
+              attachmentFilename: filename,
+            });
+            await fetch("/api/dropbox/test-upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                pdfBase64: emlBase64,
+                filename: "mail con cot.eml",
+                folderPath: revertData.renamedFolderPath,
+              }),
+            });
+          } catch (emlErr) {
+            console.error("[demo-coti] Error subiendo .eml:", emlErr instanceof Error ? emlErr.message : emlErr);
+          }
+
           const encodedPath = revertData.renamedFolderPath
             .split("/")
             .map(encodeURIComponent)
@@ -3241,6 +3514,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
           title="Enviar cotización por email"
         >
           Enviar PDF
+        </button>
+        <button
+          type="button"
+          onClick={handlePdfLangToggle}
+          className="rounded-full border border-zinc-500 bg-zinc-600 px-3 py-2 text-xs font-medium text-white shadow-md transition hover:bg-zinc-700"
+          aria-label={`Cambiar idioma del PDF a ${pdfLang === "en" ? "español" : "inglés"}`}
+          title={`PDF en ${pdfLang === "en" ? "English" : "Español"} — clic para cambiar`}
+        >
+          {pdfLang === "en" ? "EN" : "ES"}
         </button>
         <button
           type="button"
@@ -3524,35 +3806,15 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   className={`${inputClass} flex-1`}
                   placeholder="Cliente"
                 />
-                {agentOpen ? (
-                  <>
-                    <input
-                      id="dc02-agent"
-                      type="text"
-                      autoComplete="organization"
-                      value={agentName}
-                      onChange={(e) => setAgentName(e.target.value)}
-                      className={`${inputClass} !w-[30%] max-w-[30%] shrink-0`}
-                      placeholder="Agent"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { setAgentOpen(false); setAgentName(""); }}
-                      className="shrink-0 text-xs text-zinc-400 hover:text-zinc-600"
-                    >
-                      ✕
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setAgentOpen(true)}
-                    className="shrink-0 text-xs text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
-                  >
-                    + agregar agent
-                  </button>
-                )}
+                <input
+                  id="dc02-agent"
+                  type="text"
+                  autoComplete="organization"
+                  value={agentName}
+                  onChange={(e) => setAgentName(e.target.value)}
+                  className={`${inputClass} !w-[30%] max-w-[30%] shrink-0`}
+                  placeholder="Agent"
+                />
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -3687,6 +3949,24 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 </div>
               )}
             </div>
+
+            {(tradeDirection === "expo" || tradeDirection === "ambas") && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="min-w-0">
+                  <label htmlFor="dc02-fwd" className={labelClass}>
+                    FWD
+                  </label>
+                  <input
+                    id="dc02-fwd"
+                    type="text"
+                    autoComplete="off"
+                    value={fwd}
+                    onChange={(e) => setFwd(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-3">
@@ -3835,7 +4115,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         placeholder="Nombre"
                       />
                     </div>
-                    {tradeDirection === "impo" && !pet.hasCrate && !pet.crateRegistered ? (
+                    {!pet.hasCrate && !pet.crateRegistered ? (
                       <div className="col-span-2">
                         <span className={fieldLabelClass} aria-hidden="true">
                           &nbsp;
@@ -3844,7 +4124,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                           type="button"
                           onClick={() => registerCrateAsClient(i)}
                           className={`${inputClass} cursor-pointer truncate whitespace-nowrap border-sky-600/70 bg-sky-50 px-2 font-medium text-sky-900 hover:bg-sky-100`}
-                          aria-label={`Agregar jaula a mascota ${i + 1} (cliente provee)`}
+                          aria-label={`Agregar jaula a mascota ${i + 1}`}
                         >
                           + Agregar jaula
                         </button>
@@ -3852,43 +4132,41 @@ export default function DemoCoti01Page(): React.JSX.Element {
                     ) : (
                     <>
                       <div>
-                        <div className="mb-0.5 flex items-center justify-between gap-2">
+                        <div className="relative mb-0.5 flex items-center justify-between gap-2">
                           <label
                             htmlFor={`dc02-pet-${i}-crate`}
                             className="block text-xs font-medium text-zinc-600"
                           >
                             Crate
                           </label>
-                          <div className="flex items-center gap-1">
-                            {tradeDirection === "impo" ? (
+                          <div className="absolute -top-full right-0 flex items-center gap-1">
+                            {pet.hasCrate ? (
                               <>
-                                {pet.hasCrate ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeCrateFromPet(i)}
-                                    className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
-                                    title="Volver a 'cliente provee el crate'"
-                                    aria-label={`Cliente provee el crate de mascota ${i + 1}`}
+                                <button
+                                  type="button"
+                                  onClick={() => removeCrateFromPet(i)}
+                                  className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
+                                  title="Volver a 'cliente provee el crate'"
+                                  aria-label={`Cliente provee el crate de mascota ${i + 1}`}
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.25"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-3 w-3"
+                                    aria-hidden
                                   >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2.25"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="h-3 w-3"
-                                      aria-hidden
-                                    >
-                                      <path d="M9 14 4 9l5-5" />
-                                      <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
-                                    </svg>
-                                    <span className="tracking-wide uppercase">
-                                      cliente provee
-                                    </span>
-                                  </button>
-                                ) : null}
+                                    <path d="M9 14 4 9l5-5" />
+                                    <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                                  </svg>
+                                  <span className="tracking-wide uppercase">
+                                    client will provide
+                                  </span>
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => unregisterCrate(i)}
@@ -3916,90 +4194,31 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                 </button>
                               </>
                             ) : (
-                              <>
-                                {pet.hasCrate ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeCrateFromPet(i)}
-                                    className="group/remove-crate -my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
-                                    title="Quitar crate (cliente provee)"
-                                    aria-label={`Quitar crate cotizado de mascota ${i + 1}`}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2.25"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="h-3 w-3"
-                                      aria-hidden
-                                    >
-                                      <path d="M18 6 6 18" />
-                                      <path d="m6 6 12 12" />
-                                    </svg>
-                                    <span className="tracking-wide uppercase">
-                                      quitar
-                                    </span>
-                                  </button>
-                                ) : null}
-                                {excludedCrateKeys.has(pet.id) ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => restoreCrateRow(pet.id)}
-                                    className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-emerald-500 transition hover:bg-emerald-50 hover:text-emerald-700"
-                                    title="Volver a incluir ítem"
-                                    aria-label={`Volver a incluir ítem de crate de mascota ${i + 1}`}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2.25"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="h-3 w-3"
-                                      aria-hidden
-                                    >
-                                      <path d="M3 12a9 9 0 1 0 3-6.7" />
-                                      <path d="M3 4v5h5" />
-                                    </svg>
-                                    <span className="tracking-wide uppercase">
-                                      restaurar
-                                    </span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => excludeCrateRow(pet.id)}
-                                    className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
-                                    title="Eliminar ítem (no aparece en cotización)"
-                                    aria-label={`Eliminar ítem de crate de mascota ${i + 1}`}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2.25"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="h-3 w-3"
-                                      aria-hidden
-                                    >
-                                      <path d="M3 6h18" />
-                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                      <line x1="10" x2="10" y1="11" y2="17" />
-                                      <line x1="14" x2="14" y1="11" y2="17" />
-                                    </svg>
-                                    <span className="tracking-wide uppercase">
-                                      eliminar
-                                    </span>
-                                  </button>
-                                )}
-                              </>
+                              <button
+                                type="button"
+                                onClick={() => unregisterCrate(i)}
+                                className="-my-0.5 inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-red-50 hover:text-red-600"
+                                title="Quitar jaula (no aparece en cotización)"
+                                aria-label={`Quitar jaula de mascota ${i + 1}`}
+                              >
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.25"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-3 w-3"
+                                  aria-hidden
+                                >
+                                  <path d="M18 6 6 18" />
+                                  <path d="m6 6 12 12" />
+                                </svg>
+                                <span className="tracking-wide uppercase">
+                                  quitar jaula
+                                </span>
+                              </button>
                             )}
                           </div>
                         </div>
@@ -4071,7 +4290,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                           />
                         </div>
                       ) : (
-                        <div>
+                        <div className="col-span-2 sm:col-span-1 lg:col-span-1">
                           <span
                             className={fieldLabelClass}
                             aria-hidden="true"
@@ -4081,20 +4300,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
                           <button
                             type="button"
                             onClick={() => addCrateToPet(i)}
-                            className={
-                              tradeDirection === "impo"
-                                ? `${inputClass} cursor-pointer truncate whitespace-nowrap border-sky-600/70 bg-sky-50 px-2 font-medium text-sky-900 hover:bg-sky-100`
-                                : `${inputClass} cursor-pointer truncate whitespace-nowrap border-emerald-600/70 bg-emerald-50 px-2 font-medium text-emerald-900 hover:bg-emerald-100`
-                            }
-                            aria-label={
-                              tradeDirection === "impo"
-                                ? `LATAM provee el crate de mascota ${i + 1}`
-                                : `Agregar crate cotizado a mascota ${i + 1}`
-                            }
+                            className={`${inputClass} cursor-pointer truncate whitespace-nowrap border-emerald-600/70 bg-emerald-50 px-2 font-medium text-emerald-900 hover:bg-emerald-100`}
+                            aria-label={`LATAM provee el crate de mascota ${i + 1}`}
                           >
-                            {tradeDirection === "impo"
-                              ? "+ LATAM provee el crate"
-                              : "+ Agregar crate"}
+                            LATAM provee
                           </button>
                         </div>
                       )}
@@ -4220,7 +4429,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         );
                         return (
                           <Fragment key={q.import_key}>
-                            <tr className="border-b border-zinc-400 even:bg-zinc-100">
+                            <tr className="group border-b border-zinc-400 even:bg-zinc-100">
                               <td className="px-1 py-1 align-middle">
                                 <button
                                   type="button"
@@ -4282,8 +4491,20 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                     : "—")}
                                 {q.currency ? ` ${q.currency}` : ""}
                               </td>
-                              <td className="max-w-[140px] px-3 py-2 text-xs text-zinc-600">
-                                {q.quotation_date_raw ?? "—"}
+                              <td className="max-w-[200px] px-3 py-2 text-xs text-zinc-600">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate">
+                                    {q.quotation_date_raw ?? "—"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => importSimilarQuote(q)}
+                                    className="shrink-0 rounded border border-zinc-300 bg-white px-2 py-1 text-[10px] font-medium text-zinc-700 opacity-0 transition-opacity hover:bg-zinc-50 group-hover:opacity-100 focus:opacity-100"
+                                    title="Importar a cotización actual"
+                                  >
+                                    Importar
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                             {open ? (
@@ -4739,7 +4960,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                             updateLatamRow={updateLatamRow}
                             removeLatamRow={removeLatamRow}
                             removeCrateFromPet={removeCrateFromPet}
-                            excludeCrateRow={excludeCrateRow}
+                            unregisterCrate={unregisterCrate}
                             pets={pets}
                           />
                         ))}
@@ -4760,7 +4981,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                                 updateLatamRow={updateLatamRow}
                                 removeLatamRow={removeLatamRow}
                                 removeCrateFromPet={removeCrateFromPet}
-                                excludeCrateRow={excludeCrateRow}
+                                unregisterCrate={unregisterCrate}
                                 pets={pets}
                                 isOverlay
                               />
@@ -5054,6 +5275,20 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 </section>
               </div>
 
+            <div className="mt-6">
+              <label htmlFor="dc02-notes" className={labelClass}>
+                Notes
+              </label>
+              <textarea
+                id="dc02-notes"
+                rows={4}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className={`${inputClass} min-h-[5rem] resize-y font-sans`}
+                placeholder="Anotaciones internas de la cotización"
+              />
+            </div>
+
             <hr
               className="my-8 border-0 border-t border-dashed border-zinc-300"
               aria-hidden
@@ -5105,6 +5340,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
           >
             <QuotePrintLayout
               data={printData}
+              lang={pdfLang}
               callbacks={{
                 onCustomerNameChange: setCustomerName,
                 onAgentNameChange: setAgentName,
@@ -5112,9 +5348,17 @@ export default function DemoCoti01Page(): React.JSX.Element {
                 onDestinationChange: setDestination,
                 onQuotedDateChange: setQuotedDate,
                 onTravelDateChange: setTravelDate,
-                onBudgetLineChange: updateLatamRow,
+                onBudgetLineChange: (rowId, patch) => updateLatamRowForPdf(rowId, patch, pdfLang),
                 onDisclaimerContractChange: setDisclaimerContract,
                 onRemoveBudgetLine: removeLatamRow,
+                onReorderBudgetLines: (activeId, overId) => {
+                  setLatamRows((prev) => {
+                    const oldIndex = prev.findIndex((r) => r.id === activeId);
+                    const newIndex = prev.findIndex((r) => r.id === overId);
+                    if (oldIndex === -1 || newIndex === -1) return prev;
+                    return arrayMove(prev, oldIndex, newIndex);
+                  });
+                },
               }}
             />
           </div>
@@ -5335,11 +5579,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
                     <label className="mb-1 block text-xs font-medium text-zinc-700">
                       Destinatario
                     </label>
-                    <input
-                      type="email"
+                    <EmailAutocomplete
                       value={emailTo}
-                      onChange={(e) => {
-                        setEmailTo(e.target.value);
+                      onChange={(v) => {
+                        setEmailTo(v);
                         if (selectedThread) {
                           setSelectedThread(null);
                           setEmailSubject(customerName.trim() ? `Cotización LATAM Pet Transport — ${customerName.trim()}` : "Cotización LATAM Pet Transport");
@@ -5532,12 +5775,10 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">agente recomendado</span>
                       )}
                     </label>
-                    <input
-                      type="email"
-                      value={emailCc}
-                      onChange={(e) => setEmailCc(e.target.value)}
-                      placeholder="cc@ejemplo.com (opcional)"
-                      className={inputClass}
+                    <EmailTagInput
+                      values={emailCc}
+                      onChange={setEmailCc}
+                      placeholder="cc@ejemplo.com (Enter o coma para agregar)"
                       disabled={emailSending}
                     />
                   </div>
@@ -5551,12 +5792,11 @@ export default function DemoCoti01Page(): React.JSX.Element {
                         Cargando template…
                       </div>
                     ) : (
-                      <textarea
+                      <RichTextEditor
                         value={emailBody}
-                        onChange={(e) => setEmailBody(e.target.value)}
-                        rows={10}
-                        className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
+                        onChange={setEmailBody}
                         disabled={emailSending}
+                        minHeight="16rem"
                       />
                     )}
                   </div>
@@ -5587,12 +5827,54 @@ export default function DemoCoti01Page(): React.JSX.Element {
               >
                 {emailResult === "ok" ? "Cerrar" : "Cancelar"}
               </button>
+              <div ref={actionsMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setActionsMenuOpen((v) => !v)}
+                  disabled={emailSending || pdfDownloading || savingQuote}
+                  className="rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50"
+                  aria-label="Más acciones"
+                  aria-haspopup="menu"
+                  aria-expanded={actionsMenuOpen}
+                >
+                  {pdfDownloading || savingQuote ? "…" : "⋯"}
+                </button>
+                {actionsMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute bottom-full right-0 mb-1 min-w-[180px] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 text-xs shadow-lg"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        void handleDownloadPdfOnly();
+                      }}
+                      disabled={emailSending || pdfDownloading || savingQuote}
+                      className="block w-full px-3 py-2 text-left text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                    >
+                      {pdfDownloading ? "Generando…" : "Descargar PDF"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void handleSaveQuoteOnly()}
+                      disabled={emailSending || pdfDownloading || savingQuote}
+                      className="block w-full px-3 py-2 text-left text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                    >
+                      {savingQuote ? "Guardando…" : "Guardar cotización"}
+                    </button>
+                  </div>
+                )}
+              </div>
               {emailResult !== "ok" && (
                 <button
                   type="button"
                   onClick={() => void handleSendEmail()}
                   disabled={
                     emailSending ||
+                    pdfDownloading ||
                     emailTemplateLoading ||
                     !emailTo.trim() ||
                     !emailSubject.trim() ||

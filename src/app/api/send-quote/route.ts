@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 type SendQuoteBody = {
   to: string;
-  cc?: string;
+  cc?: string | string[];
   pdfBase64: string;
   customerName?: string;
   filename?: string;
@@ -83,14 +83,15 @@ export async function POST(req: NextRequest) {
       contentType: "application/pdf",
       contentBytes: pdfBuffer.toString("base64"),
     };
-    const bodyContent = customBody?.trim() || (customerName
-      ? `Adjunto encontrará la cotización para ${customerName}.\n\nLATAM Pet Transport`
-      : "Adjunto encontrará la cotización solicitada.\n\nLATAM Pet Transport");
+    const defaultHtmlBody = customerName
+      ? `<p>Adjunto encontrará la cotización para ${customerName}.</p><p>LATAM Pet Transport</p>`
+      : `<p>Adjunto encontrará la cotización solicitada.</p><p>LATAM Pet Transport</p>`;
+    const bodyContent = customBody?.trim() || defaultHtmlBody;
 
     let graphRes: Response;
 
     if (replyToMessageId?.trim()) {
-      // Flujo reply: crear borrador → agregar adjunto → enviar (requiere Mail.ReadWrite)
+      // Flujo reply: crear borrador con body HTML → reemplazar body → agregar adjunto → enviar (requiere Mail.ReadWrite)
       const createRes = await fetch(
         `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(replyToMessageId)}/createReply`,
         {
@@ -102,8 +103,8 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             message: {
               toRecipients: [{ emailAddress: { address: to } }],
+              body: { contentType: "HTML", content: bodyContent },
             },
-            comment: bodyContent,
           }),
         },
       );
@@ -147,9 +148,12 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           message: {
             subject,
-            body: { contentType: "Text", content: bodyContent },
+            body: { contentType: "HTML", content: bodyContent },
             toRecipients: [{ emailAddress: { address: to } }],
-            ...(cc?.trim() ? { ccRecipients: [{ emailAddress: { address: cc.trim() } }] } : {}),
+            ...(() => {
+              const ccList = Array.isArray(cc) ? cc : cc?.trim() ? [cc.trim()] : [];
+              return ccList.length > 0 ? { ccRecipients: ccList.map((a) => ({ emailAddress: { address: a } })) } : {};
+            })(),
             attachments: [attachment],
           },
           saveToSentItems: true,
