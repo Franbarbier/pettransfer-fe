@@ -16,8 +16,15 @@ const IconCrate = () => (
   </svg>
 );
 
+const IconItems = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+    <path fillRule="evenodd" d="M3 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Zm3.5 1.75a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7Zm0 3a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7Zm0 3a.75.75 0 0 0 0 1.5h4a.75.75 0 0 0 0-1.5h-4Z" clipRule="evenodd" />
+  </svg>
+);
+
 const navItems: NavItem[] = [
   { href: "/admin/crate-tariffs", label: "Tarifas de Jaulas", icon: <IconCrate /> },
+  { href: "/admin/items", label: "Items", icon: <IconItems /> },
 ];
 
 export function AdminSidebar() {
