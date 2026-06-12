@@ -50,7 +50,8 @@ import {
 import {
   type FolderMatch,
   searchYaCotizados,
-  APP_TESTING_PATH,
+  DROPBOX_PEDIDOS_PARA_COTIZAR_PATH,
+  DROPBOX_YA_COTIZADOS_PATH,
 } from "@/lib/dropboxSearch";
 import { buildEmlBase64 } from "@/lib/buildEml";
 import { QuotePrintLayout, type QuotePrintData, type QuotePrintCallbacks } from "@/components/QuotePrintLayout";
@@ -2857,14 +2858,14 @@ export default function DemoCoti01Page(): React.JSX.Element {
     if (!uploadRes.ok || !uploadData.ok) throw new Error(uploadData.error ?? `Error de upload ${uploadRes.status}`);
 
     const lastSlash = folderPath.lastIndexOf("/");
-    const parent = folderPath.substring(0, lastSlash);
     const folderName = folderPath.substring(lastSlash + 1);
     const alreadyTagged = folderName.startsWith("cotizado por app ");
-    const newPath = alreadyTagged ? folderPath : `${parent}/cotizado por app ${folderName}`;
+    const newFolderName = alreadyTagged ? folderName : `cotizado por app ${folderName}`;
+    const newPath = `${DROPBOX_YA_COTIZADOS_PATH}/${newFolderName}`;
 
     const uploadedFilePath = `${newPath}/${filename}`;
 
-    if (!alreadyTagged) {
+    if (newPath !== folderPath) {
       const moveRes = await fetch("/api/dropbox/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2873,8 +2874,8 @@ export default function DemoCoti01Page(): React.JSX.Element {
       const moveData = (await moveRes.json()) as { ok: boolean; error?: string };
       const isConflict = moveData.error?.includes("conflict");
       if (!moveRes.ok || !moveData.ok) {
-        if (!isConflict) throw new Error(moveData.error ?? `Error al renombrar ${moveRes.status}`);
-        // Conflicto = la carpeta destino ya existe → ya está taggeada, continuar
+        if (!isConflict) throw new Error(moveData.error ?? `Error al mover carpeta ${moveRes.status}`);
+        // Conflicto = la carpeta destino ya existe en Ya Cotizados → continuar
       }
     }
 
@@ -3386,7 +3387,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
         try {
           const searchResult = await searchYaCotizados(
             { customerName, operation: tradeDirection, origin, destination },
-            APP_TESTING_PATH,
+            DROPBOX_PEDIDOS_PARA_COTIZAR_PATH,
           );
           if (searchResult.matches.length === 0) {
             setDbxUploadStatus("not-found");
@@ -5420,7 +5421,7 @@ export default function DemoCoti01Page(): React.JSX.Element {
                   <p className="text-xs text-zinc-400">El PDF no fue subido a Dropbox.</p>
                 </div>
                 <a
-                  href={`https://www.dropbox.com/home${APP_TESTING_PATH.split("/").map(encodeURIComponent).join("/")}`}
+                  href={`https://www.dropbox.com/home${DROPBOX_PEDIDOS_PARA_COTIZAR_PATH.split("/").map(encodeURIComponent).join("/")}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100"

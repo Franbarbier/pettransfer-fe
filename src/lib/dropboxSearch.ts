@@ -1,5 +1,5 @@
 export const DROPBOX_YA_COTIZADOS_PATH = "/Cotizaciones/A cotizar y cotizados/Ya Cotizados";
-export const APP_TESTING_PATH = `${DROPBOX_YA_COTIZADOS_PATH}/app-testing`;
+export const DROPBOX_PEDIDOS_PARA_COTIZAR_PATH = "/Cotizaciones/A cotizar y cotizados/Pedidos para cotizar";
 
 export type YaCotizadosSearchParams = {
   customerName: string;
